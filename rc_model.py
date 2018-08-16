@@ -27,6 +27,7 @@ import logging
 import json
 import numpy as np
 import tensorflow as tf
+from tqdm import tqdm
 from utils.bleu import Bleu
 from utils.rouge import RougeL
 from layers.basic_rnn import rnn
@@ -91,7 +92,6 @@ class RCModel(object):
         self._match()
         self._hand_feature()
         self._fuse()
-
         self._decode()
         self._compute_loss()
         self._create_train_op()
@@ -310,7 +310,7 @@ class RCModel(object):
         """
         total_num, total_loss = 0, 0
         log_every_n_batch, n_batch_loss = 50, 0
-        for bitx, batch in enumerate(train_batches, 1):
+        for bitx, batch in tqdm(enumerate(train_batches, 1)):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
                          self.p_c: batch['article_char_ids'],
@@ -359,7 +359,7 @@ class RCModel(object):
         """
 
         max_rouge_l = 0
-        for epoch in range(1, epochs + 1):
+        for epoch in tqdm(range(1, epochs + 1)):
             self.logger.info('Training the model for epoch {}'.format(epoch))
             train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
             train_loss = self._train_epoch(train_batches, dropout_keep_prob)
@@ -395,7 +395,7 @@ class RCModel(object):
         total_loss, total_num = 0, 0
         rl, bleu = RougeL(), Bleu()
         ariticle_map = {}
-        for b_itx, batch in enumerate(eval_batches):
+        for b_itx, batch in tqdm(enumerate(eval_batches)):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
                          self.p_c: batch['article_char_ids'],
