@@ -48,6 +48,7 @@ class RCModel(object):
 
         # basic config
         self.algo = args.algo
+        # self.suffix = args.suffix
         self.hidden_size = args.hidden_size
         self.optim_type = args.optim
         self.learning_rate = args.learning_rate
@@ -88,7 +89,9 @@ class RCModel(object):
         self._embed()
         self._encode()
         self._match()
+        self._hand_feature()
         self._fuse()
+
         self._decode()
         self._compute_loss()
         self._create_train_op()
@@ -110,7 +113,7 @@ class RCModel(object):
         self.q_c_length = tf.placeholder(tf.int32, [None])
         self.start_label = tf.placeholder(tf.int32, [None])
         self.end_label = tf.placeholder(tf.int32, [None])
-
+        self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
         self.p_pad_len = tf.placeholder(tf.int32)
         self.q_pad_len = tf.placeholder(tf.int32)
         self.p_CL = tf.placeholder(tf.int32)
@@ -206,6 +209,15 @@ class RCModel(object):
             if self.use_dropout:
                 self.match_p_encodes = tf.nn.dropout(self.match_p_encodes, self.dropout_keep_prob)
 
+    def _hand_feature(self):
+        """
+        Concats hand features
+        """
+        with tf.variable_scope('hand_feature'):
+            batch_size = tf.shape(self.start_label)[0]
+            self.wiqB = tf.reshape(self.wiqB, [batch_size, self.p_pad_len, 1])
+            self.match_p_encodes = tf.concat([self.match_p_encodes, self.wiqB], axis=-1)
+
     def _fuse(self):
         """
         Employs Bi-LSTM again to fuse the context information after match layer
@@ -224,6 +236,9 @@ class RCModel(object):
             #                                            self.p_t_length, self.p_t_length)
             if self.use_dropout:
                 self.fuse_p_encodes = tf.nn.dropout(self.fuse_p_encodes, self.dropout_keep_prob)
+
+
+
 
     def _decode(self):
         """
@@ -306,6 +321,7 @@ class RCModel(object):
                          self.q_c_length: batch['question_c_len'],
                          self.start_label: batch['start_id'],
                          self.end_label: batch['end_id'],
+                         self.wiqB: batch['wiqB'],
 
                          self.p_CL: batch['article_CL'],
                          self.q_CL: batch['question_CL'],
@@ -390,6 +406,7 @@ class RCModel(object):
                          self.q_c_length: batch['question_c_len'],
                          self.start_label: batch['start_id'],
                          self.end_label: batch['end_id'],
+                         self.wiqB: batch['wiqB'],
 
                          self.p_CL: batch['article_CL'],
                          self.q_CL: batch['question_CL'],

@@ -183,7 +183,7 @@ def train(args):
         rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Training the model...')
     rc_model.train(mai_data, args.epochs, args.batch_size, save_dir=args.model_dir,
-                   save_prefix=args.algo,
+                   save_prefix=args.algo+args.suffix,
                    dropout_keep_prob=args.dropout_keep_prob)
     logger.info('Done with model training!')
 

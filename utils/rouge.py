@@ -6,41 +6,28 @@ class RougeL(object):
         self.gamma = gamma  # gamma 为常量
         self.inst_scores = []
 
-    # def lcs(self, string: str, sub: str) -> int:
-    #     """计算最长公共子序列
-    #
-    #     Arguments:
-    #         string {str} -- 字符串
-    #         sub {str} -- 字符串
-    #
-    #     Returns:
-    #         int -- 最长公共子序列的长度
-    #     """
-    #
-    #     str_length = len(string)
-    #     sub_length = len(sub)
-    #
-    #     lengths = np.zeros(((str_length + 1), (sub_length + 1)), dtype=np.int)
-    #     for i in range(1, str_length + 1):
-    #         for j in range(1, sub_length + 1):
-    #             if string[i - 1] == sub[j - 1]:
-    #                 lengths[i][j] = lengths[i - 1][j - 1] + 1
-    #             else:
-    #                 lengths[i][j] = max(lengths[i - 1][j], lengths[i][j - 1])
-    #     return lengths[str_length, sub_length]
-
     def lcs(self, string: str, sub: str) -> int:
-        m = [[0]*(len(sub) + 1)]*(len(string) + 1)  # 生成0矩阵，为方便后续计算，比字符串长度多了一列
-        mmax = 0  # 最长匹配的长度
-        # p = 0  # 最长匹配对应在s1中的最后一位
-        for i in range(len(string)):
-            for j in range(len(sub)):
-                if string[i] == sub[j]:
-                    m[i + 1][j + 1] = m[i][j] + 1
-                    if m[i + 1][j + 1] > mmax:
-                        mmax = m[i + 1][j + 1]
-                        # p = i + 1
-        return mmax  # 返回最长子串及其长度
+        """计算最长公共子序列
+
+        Arguments:
+            string {str} -- 字符串
+            sub {str} -- 字符串
+
+        Returns:
+            int -- 最长公共子序列的长度
+        """
+
+        str_length = len(string)
+        sub_length = len(sub)
+
+        lengths = np.zeros(((str_length + 1), (sub_length + 1)), dtype=np.int)
+        for i in range(1, str_length + 1):
+            for j in range(1, sub_length + 1):
+                if string[i - 1] == sub[j - 1]:
+                    lengths[i][j] = lengths[i - 1][j - 1] + 1
+                else:
+                    lengths[i][j] = max(lengths[i - 1][j], lengths[i][j - 1])
+        return lengths[str_length, sub_length]
 
     def add_inst(self, cand: str, ref: str):
         """根据参考答案分析出预测答案的分数

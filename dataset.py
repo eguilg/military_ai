@@ -321,6 +321,16 @@ class MilitaryAiDataset(object):
         del self.char_wv, self.token_wv
         del self.all_chars, self.all_tokens
 
+    def _gen_hand_features(self, batch_data):
+        batch_data['wiqB'] = []
+        for sidx, sample in enumerate(batch_data['raw_data']):
+            wiqB = [[0.0]]*batch_data['article_pad_len']
+            for idx, token in enumerate(sample['article_tokens']):
+                if token in sample['question_tokens']:
+                    wiqB[idx] = [1.0]
+            batch_data['wiqB'].append(wiqB)
+        return batch_data
+
     def _one_mini_batch(self, data, indices):
         """
         Get one mini batch
@@ -342,6 +352,9 @@ class MilitaryAiDataset(object):
                       'end_id': [],
                       'question_c_len': [],
                       'article_c_len': [],
+
+                      # hand features
+                      'wiqB': [],
 
                       'article_pad_len': 0,
                       'question_pad_len': 0,
@@ -374,6 +387,7 @@ class MilitaryAiDataset(object):
                 # fake span for some samples, only valid for testing
                 batch_data['start_id'].append(0)
                 batch_data['end_id'].append(0)
+        batch_data = self._gen_hand_features(batch_data)
         return batch_data
 
     def _dynamic_padding(self, batch_data):
