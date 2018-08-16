@@ -114,6 +114,7 @@ class RCModel(object):
         self.start_label = tf.placeholder(tf.int32, [None])
         self.end_label = tf.placeholder(tf.int32, [None])
         self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
+        # self.wiqW = tf.placeholder(tf.float32, [None, None, 1])
         self.p_pad_len = tf.placeholder(tf.int32)
         self.q_pad_len = tf.placeholder(tf.int32)
         self.p_CL = tf.placeholder(tf.int32)

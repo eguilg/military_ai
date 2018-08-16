@@ -29,6 +29,19 @@ class RougeL(object):
                     lengths[i][j] = max(lengths[i - 1][j], lengths[i][j - 1])
         return lengths[str_length, sub_length]
 
+    # def lcs(self, string: str, sub: str) -> int:
+    #     m = [[0]*(len(sub) + 1)]*(len(string) + 1)  # 生成0矩阵，为方便后续计算，比字符串长度多了一列
+    #     mmax = 0  # 最长匹配的长度
+    #     # p = 0  # 最长匹配对应在s1中的最后一位
+    #     for i in range(len(string)):
+    #         for j in range(len(sub)):
+    #             if string[i] == sub[j]:
+    #                 m[i + 1][j + 1] = m[i][j] + 1
+    #                 if m[i + 1][j + 1] > mmax:
+    #                     mmax = m[i + 1][j + 1]
+    #                     # p = i + 1
+    #     return mmax  # 返回最长子串及其长度
+
     def add_inst(self, cand: str, ref: str):
         """根据参考答案分析出预测答案的分数
 

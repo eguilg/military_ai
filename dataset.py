@@ -200,14 +200,9 @@ class MilitaryAiDataset(object):
                         sample['article_tokens'] = all_json[i]['questions'][j]['sampled_article_tokens']
                         sample['article_tokens_len'] = len(sample['article_tokens'])
 
-                        # sample['article_chars'] = list(''.join(all_json[i]['questions'][j]['sampled_article_tokens']))
-                        # sample['article_chars_len'] = len(sample['article_chars'])
-
                         sample['question_id'] = all_json[i]['questions'][j]['questions_id']
                         sample['question_tokens'] = all_json[i]['questions'][j]['question_tokens']
                         sample['question_tokens_len'] = len(sample['question_tokens'])
-                        # sample['question_chars'] = list(''.join(all_json[i]['questions'][j]['question_tokens']))
-                        # sample['question_chars_len'] = len(sample['question_chars'])
 
                         self.all_tokens.extend(sample['question_tokens'])
                         self.all_chars.extend(list(''.join(sample['question_tokens'])))
@@ -233,6 +228,16 @@ class MilitaryAiDataset(object):
                         dataset.append(sample)
                     fo.write(json.dumps(all_json[i])+'\n')
         return dataset
+
+    def _gen_hand_features(self, batch_data):
+        batch_data['wiqB'] = []
+        for sidx, sample in enumerate(batch_data['raw_data']):
+            wiqB = [[0.0]]*batch_data['article_pad_len']
+            for idx, token in enumerate(sample['article_tokens']):
+                if token in sample['question_tokens']:
+                    wiqB[idx] = [1.0]
+            batch_data['wiqB'].append(wiqB)
+        return batch_data
 
     def _load_from_preprocessed(self, data_path, train=False):
         """
@@ -321,15 +326,7 @@ class MilitaryAiDataset(object):
         del self.char_wv, self.token_wv
         del self.all_chars, self.all_tokens
 
-    def _gen_hand_features(self, batch_data):
-        batch_data['wiqB'] = []
-        for sidx, sample in enumerate(batch_data['raw_data']):
-            wiqB = [[0.0]]*batch_data['article_pad_len']
-            for idx, token in enumerate(sample['article_tokens']):
-                if token in sample['question_tokens']:
-                    wiqB[idx] = [1.0]
-            batch_data['wiqB'].append(wiqB)
-        return batch_data
+
 
     def _one_mini_batch(self, data, indices):
         """
