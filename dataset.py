@@ -67,9 +67,8 @@ class MilitaryAiDataset(object):
         self._convert_to_ids()
 
         self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set+self.test_set])
-        # self.p_max_chars_len = max([list(''.join(sample['article_tokens'])) for sample in self.train_set + self.test_set])
         self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
-        # self.q_max_chars_len = max([list(''.join(sample['question_tokens'])) for sample in self.train_set + self.test_set])
+
         self.p_token_max_len = max(
             [max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
         self.q_token_max_len = max(
@@ -298,10 +297,10 @@ class MilitaryAiDataset(object):
             self.logger.info("Saving token embedding model")
             self.token_wv.save(self.token_embed_path)
 
-        self.char_wv['<unk>'] = np.zeros(300, dtype=np.float32)
-        self.char_wv['<pad>'] = np.zeros(300, dtype=np.float32)
-        self.token_wv['<unk>'] = np.zeros(300, dtype=np.float32)
-        self.token_wv['<pad>'] = np.zeros(300, dtype=np.float32)
+        self.char_wv['<unk>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
+        self.char_wv['<pad>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
+        self.token_wv['<unk>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
+        self.token_wv['<pad>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
 
     def _get_vocabs(self):
         self.char_vocab = Vocab(self.char_wv.index2word, self.char_wv.vectors)

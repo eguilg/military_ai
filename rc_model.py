@@ -134,9 +134,10 @@ class RCModel(object):
             self.p_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.p_t)
             self.q_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.q_t)
 
-            if self.use_dropout:
-                self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
-                self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
+            # if self.use_dropout:
+            #     self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
+            #     self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
+
         if self.use_char_emb:
             with tf.variable_scope('char_embedding'):
                 with tf.device('/cpu:0'):
@@ -152,9 +153,9 @@ class RCModel(object):
                 batch_size = tf.shape(self.start_label)[0]
                 self.p_c_emb = tf.reshape(self.p_c_emb, [batch_size * self.p_pad_len, self.p_CL, self.char_vocab.embed_dim])
                 self.q_c_emb = tf.reshape(self.q_c_emb, [batch_size * self.q_pad_len, self.q_CL, self.char_vocab.embed_dim])
-                if self.use_dropout:
-                    self.p_c_emb = tf.nn.dropout(self.p_c_emb, self.dropout_keep_prob)
-                    self.q_c_emb = tf.nn.dropout(self.q_c_emb, self.dropout_keep_prob)
+                # if self.use_dropout:
+                #     self.p_c_emb = tf.nn.dropout(self.p_c_emb, self.dropout_keep_prob)
+                #     self.q_c_emb = tf.nn.dropout(self.q_c_emb, self.dropout_keep_prob)
 
     def _encode(self):
         """

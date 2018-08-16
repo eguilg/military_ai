@@ -68,12 +68,14 @@ def parse_args():
                                 help='weight decay')
     train_settings.add_argument('--dropout_keep_prob', type=float, default=0.8,
                                 help='dropout keep rate')
-    train_settings.add_argument('--batch_size', type=int, default=20,
+    train_settings.add_argument('--batch_size', type=int, default=32,
                                 help='train batch size')
     train_settings.add_argument('--epochs', type=int, default=15,
                                 help='train epochs')
 
     model_settings = parser.add_argument_group('model settings')
+    model_settings.add_argument('--suffix', type=str, default='',
+                                help='model file name suffix')
     model_settings.add_argument('--algo', choices=['BIDAF', 'MLSTM'], default='BIDAF',
                                 help='choose the algorithm to use')
     model_settings.add_argument('--embed_size', type=int, default=300,
@@ -149,7 +151,7 @@ def prepare(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
-                                 char_min_cnt=2, token_min_cnt=5)
+                                 char_min_cnt=2, token_min_cnt=10)
 
     logger.info('Assigning embeddings...')
     if not args.use_embe:
@@ -169,7 +171,7 @@ def train(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
-                                 char_min_cnt=2, token_min_cnt=5)
+                                 char_min_cnt=2, token_min_cnt=10)
 
     logger.info('Assigning embeddings...')
     if not args.use_embe:
@@ -178,7 +180,7 @@ def train(args):
     logger.info('Initialize the model...')
     rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, args)
     if args.is_restore:
-        rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo)
+        rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Training the model...')
     rc_model.train(mai_data, args.epochs, args.batch_size, save_dir=args.model_dir,
                    save_prefix=args.algo,
@@ -195,7 +197,7 @@ def evaluate(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
-                                 char_min_cnt=2, token_min_cnt=5)
+                                 char_min_cnt=2, token_min_cnt=10)
 
     logger.info('Assigning embeddings...')
     if not args.use_embe:
@@ -203,7 +205,7 @@ def evaluate(args):
         mai_data.char_vocab.randomly_init_embeddings(args.embed_size)
     logger.info('Restoring the model...')
     rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, args)
-    rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo)
+    rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Evaluating the model on dev set...')
     dev_batches = mai_data.gen_mini_batches('dev', args.batch_size, shuffle=False)
     dev_loss, dev_bleu_rouge = rc_model.evaluate(
@@ -222,14 +224,14 @@ def predict(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
-                                 char_min_cnt=2, token_min_cnt=5)
+                                 char_min_cnt=2, token_min_cnt=10)
     logger.info('Assigning embeddings...')
     if not args.use_embe:
         mai_data.token_vocab.randomly_init_embeddings(args.embed_size)
         mai_data.char_vocab.randomly_init_embeddings(args.embed_size)
     logger.info('Restoring the model...')
     rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, args)
-    rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo)
+    rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Predicting answers for test set...')
     test_batches = mai_data.gen_mini_batches('test', args.batch_size, shuffle=False)
     rc_model.evaluate(test_batches,
