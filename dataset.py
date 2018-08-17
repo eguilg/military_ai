@@ -246,6 +246,10 @@ class MilitaryAiDataset(object):
         :param train:  is training data
         :return: the whole dataset
         """
+        from feature_handler.question_handler import QuestionTypeHandler
+        ques_type_handler = QuestionTypeHandler()
+
+
         with open(data_path, 'r') as fp:
             dataset = []
             for lidx, line in enumerate(fp):
@@ -271,6 +275,10 @@ class MilitaryAiDataset(object):
                     self.all_chars.extend(list(''.join(sample['question_tokens'])))
 
                     if train:
+                        question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
+                        sample['question_types'] = question_types
+                        sample['qtype_vec'] = type_vec
+
                         sample['answer'] = row['questions'][j]['answer']
                         sample['answer_tokens'] = row['questions'][j]['answer_tokens']
                         sample['answer_tokens_len'] = len(sample['answer_tokens'])
