@@ -42,7 +42,7 @@ class RCModel(object):
     Implements the main reading comprehension model.
     """
 
-    def __init__(self, char_vocab, token_vocab, args):
+    def __init__(self, char_vocab, token_vocab, args, qtype_count=10):
 
         # logging
         self.logger = logging.getLogger("Military AI")
@@ -56,7 +56,8 @@ class RCModel(object):
         self.weight_decay = args.weight_decay
         self.use_dropout = args.dropout_keep_prob < 1
         self.use_char_emb = args.use_char_emb
-
+        self.qtype_count = qtype_count
+        self.is_train = True
         # length limit
         # self.max_p_num = args.max_p_num
         # self.max_p_len = args.max_p_len
@@ -114,6 +115,7 @@ class RCModel(object):
         self.start_label = tf.placeholder(tf.int32, [None])
         self.end_label = tf.placeholder(tf.int32, [None])
         self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
+        self.qtype_vec = tf.placeholder(tf.float32, [None, self.qtype_count])
         # self.wiqW = tf.placeholder(tf.float32, [None, None, 1])
         self.p_pad_len = tf.placeholder(tf.int32)
         self.q_pad_len = tf.placeholder(tf.int32)
@@ -280,7 +282,21 @@ class RCModel(object):
         self.start_loss = sparse_nll_loss(probs=self.start_probs, labels=self.start_label)
         self.end_loss = sparse_nll_loss(probs=self.end_probs, labels=self.end_label)
         self.all_params = tf.trainable_variables()
-        self.loss = tf.reduce_mean(tf.add(self.start_loss, self.end_loss))
+        self.main_loss = tf.reduce_mean(tf.add(self.start_loss, self.end_loss))
+        if self.is_train:
+            with tf.variable_scope("qtype-clf"):
+                last_output = self.sep_q_encodes[:, -1, :]
+                softmax_w = tf.get_variable("softmax_w",
+                                            [last_output.get_shape().as_list()[-1], self.qtype_count],
+                                            dtype=tf.float32)
+                softmax_b = tf.get_variable("softmax_b", [self.qtype_count], dtype=tf.float32)
+                type_logits = tf.matmul(last_output, softmax_w) + softmax_b
+
+                self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+                    labels=self.qtype_vec, logits=type_logits))
+            self.loss = tf.add(self.main_loss, self.type_loss)
+        else:
+            self.loss = self.main_loss
         if self.weight_decay > 0:
             with tf.variable_scope('l2_loss'):
                 l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])
@@ -309,9 +325,9 @@ class RCModel(object):
             train_batches: iterable batch data for training
             dropout_keep_prob: float value indicating dropout keep probability
         """
-        total_num, total_loss = 0, 0
-        log_every_n_batch, n_batch_loss = 50, 0
-        for bitx, batch in tqdm(enumerate(train_batches, 1)):
+        total_num, total_loss, total_main_loss = 0, 0, 0
+        log_every_n_batch, n_batch_loss, n_batch_main_loss = 50, 0, 0
+        for bitx, batch in enumerate(train_batches, 1):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
                          self.p_c: batch['article_char_ids'],
@@ -324,6 +340,7 @@ class RCModel(object):
                          self.end_label: batch['end_id'],
                          self.wiqB: batch['wiqB'],
 
+                         self.qtype_vec: batch['qtype_vecs'],
                          self.p_CL: batch['article_CL'],
                          self.q_CL: batch['question_CL'],
                          self.p_pad_len: batch['article_pad_len'],
@@ -335,15 +352,20 @@ class RCModel(object):
             #       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
             #                                    batch['article_pad_len'], batch['question_pad_len']))
             # print(batch['question_char_ids'])
-            _, loss = self.sess.run([self.train_op, self.loss], feed_dict)
-            total_loss += loss * len(batch['raw_data'])
-            total_num += len(batch['raw_data'])
+            _, loss, main_loss = self.sess.run([self.train_op, self.loss, self.main_loss], feed_dict)
+            batch_size = len(batch['raw_data'])
+            total_loss += loss * batch_size
+            total_main_loss += main_loss * batch_size
+            total_num += batch_size
             n_batch_loss += loss
+            n_batch_main_loss += main_loss
             if log_every_n_batch > 0 and bitx % log_every_n_batch == 0:
-                self.logger.info('Average loss from batch {} to {} is {}'.format(
-                    bitx - log_every_n_batch + 1, bitx, n_batch_loss / log_every_n_batch))
+                self.logger.info('Average loss from batch {} to {} is Total Loss: {}, Main Loss: {}'.format(
+                    bitx - log_every_n_batch + 1, bitx, n_batch_loss / log_every_n_batch,
+                    n_batch_main_loss / log_every_n_batch))
                 n_batch_loss = 0
-        return 1.0 * total_loss / total_num
+                n_batch_main_loss = 0
+        return 1.0 * total_loss / total_num, 1.0 * total_main_loss / total_num
 
     def train(self, data, epochs, batch_size, save_dir, save_prefix,
               dropout_keep_prob=1.0, evaluate=True):
@@ -358,20 +380,21 @@ class RCModel(object):
             dropout_keep_prob: float value indicating dropout keep probability
             evaluate: whether to evaluate the model on test set after each epoch
         """
-
+        self.is_train = True
         max_rouge_l = 0
         for epoch in tqdm(range(1, epochs + 1)):
             self.logger.info('Training the model for epoch {}'.format(epoch))
             train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
-            train_loss = self._train_epoch(train_batches, dropout_keep_prob)
-            self.logger.info('Average train loss for epoch {} is {}'.format(epoch, train_loss))
+            train_loss, train_main_loss = self._train_epoch(train_batches, dropout_keep_prob)
+            self.logger.info('Average train loss for epoch {} is Total Loss: {}, Main Loss: {}'.format(epoch, train_loss, train_main_loss))
 
             if evaluate:
                 self.logger.info('Evaluating the model after epoch {}'.format(epoch))
                 if data.dev_set is not None:
                     eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-                    eval_loss, bleu_rouge = self.evaluate(eval_batches)
+                    eval_loss, eval_main_loss, bleu_rouge = self.evaluate(eval_batches)
                     self.logger.info('Dev eval loss {}'.format(eval_loss))
+                    self.logger.info('Dev eval main loss {}'.format(eval_main_loss))
                     self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
                     if bleu_rouge['Rouge-L'] > max_rouge_l:
@@ -393,10 +416,10 @@ class RCModel(object):
             save_full_info: if True, the pred_answers will be added to raw sample and saved
         """
         pred_answers, ref_answers = [], []
-        total_loss, total_num = 0, 0
+        total_loss, total_main_loss, total_num = 0, 0, 0
         rl, bleu = RougeL(), Bleu()
         ariticle_map = {}
-        for b_itx, batch in tqdm(enumerate(eval_batches)):
+        for b_itx, batch in enumerate(eval_batches):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
                          self.p_c: batch['article_char_ids'],
@@ -408,17 +431,19 @@ class RCModel(object):
                          self.start_label: batch['start_id'],
                          self.end_label: batch['end_id'],
                          self.wiqB: batch['wiqB'],
-
+                         self.qtype_vec: batch['qtype_vecs'],
                          self.p_CL: batch['article_CL'],
                          self.q_CL: batch['question_CL'],
                          self.p_pad_len: batch['article_pad_len'],
                          self.q_pad_len: batch['question_pad_len'],
                          self.dropout_keep_prob: 1.0}
-            start_probs, end_probs, loss = self.sess.run([self.start_probs,
-                                                          self.end_probs, self.loss], feed_dict)
-
-            total_loss += loss * len(batch['raw_data'])
-            total_num += len(batch['raw_data'])
+            start_probs, end_probs, loss, main_loss = self.sess.run([self.start_probs,
+                                                                     self.end_probs, self.loss, self.main_loss],
+                                                                    feed_dict)
+            batch_size = len(batch['raw_data'])
+            total_loss += loss * batch_size
+            total_main_loss += main_loss * batch_size
+            total_num += batch_size
 
             for sample, start_prob, end_prob in zip(batch['raw_data'], start_probs, end_probs):
                 best_answer = self.find_best_answer(sample, start_prob, end_prob)
@@ -462,8 +487,9 @@ class RCModel(object):
 
         # this average loss is invalid on test set, since we don't have true start_id and end_id
         ave_loss = 1.0 * total_loss / total_num
+        ave_main_loss = 1.0 * total_main_loss / total_num
 
-        return ave_loss, bleu_rouge
+        return ave_loss, ave_main_loss, bleu_rouge
 
     def find_best_answer(self, sample, start_probs, end_probs, passage_len=None):
         """

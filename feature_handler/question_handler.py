@@ -48,7 +48,7 @@ class QuestionTypeHandler(object):
     for type in matched_types:
       type_vec[self.get_type_id(type)] = 1.0
 
-    return matched_types,type_vec
+    return matched_types, type_vec
 
   def get_type_id(self, type):
     # assert type in TYPE_DICT  # 默认一定在TypeDict里面

@@ -170,6 +170,8 @@ class MilitaryAiDataset(object):
     :return:
         whole dataset
     """
+    from feature_handler.question_handler import QuestionTypeHandler
+    ques_type_handler = QuestionTypeHandler()
     with open(data_path, 'r') as fp:
       with open(preprocessed_path, 'w') as fo:
         all_json: list = json.load(fp)
@@ -210,7 +212,11 @@ class MilitaryAiDataset(object):
             self.all_tokens.extend(sample['question_tokens'])
             self.all_chars.extend(list(''.join(sample['question_tokens'])))
 
+            sample['qtype_vec'] = [0.0] * 10
             if train:
+              question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
+              sample['question_types'] = question_types
+              sample['qtype_vec'] = type_vec.tolist()
               all_json[i]['questions'][j]['answer'] = re.sub('[\n\t\r\u3000]', '',
                                                              all_json[i]['questions'][j]['answer'])
               all_json[i]['questions'][j]['answer_tokens'] = list(filter(lambda t: t.strip() != '',
@@ -277,11 +283,11 @@ class MilitaryAiDataset(object):
 
           self.all_tokens.extend(sample['question_tokens'])
           self.all_chars.extend(list(''.join(sample['question_tokens'])))
-
+          sample['qtype_vec'] = [0.0]*ques_type_handler.type_count
           if train:
             question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
             sample['question_types'] = question_types
-            sample['qtype_vec'] = type_vec
+            sample['qtype_vec'] = type_vec.tolist()
 
             sample['answer'] = row['questions'][j]['answer']
             sample['answer_tokens'] = row['questions'][j]['answer_tokens']
@@ -368,6 +374,7 @@ class MilitaryAiDataset(object):
                   'article_char_ids': [],
                   'start_id': [],
                   'end_id': [],
+                  'qtype_vecs': [],
                   'question_c_len': [],
                   'article_c_len': [],
 
@@ -386,11 +393,8 @@ class MilitaryAiDataset(object):
       batch_data['question_tokens_len'].append(sample['question_tokens_len'])
       batch_data['article_token_ids'].append(sample['article_token_ids'])
       batch_data['article_tokens_len'].append(sample['article_tokens_len'])
-      # for token in sample['article_tokens']:
-      #     batch_data['article_c_len'].append(len(token))
-      # for token in sample['question_tokens']:
-      #     batch_data['question_c_len'].append(len(token))
 
+      batch_data['qtype_vecs'].append(sample['qtype_vec'])
     batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
     batch_data['article_pad_len'] = pad_p_len
     batch_data['question_pad_len'] = pad_q_len
@@ -443,7 +447,7 @@ class MilitaryAiDataset(object):
       ([(ids + [pad_id_c] * (pad_q_token_len - len(ids)))[:pad_q_token_len] for ids in tokens] + [
         [pad_id_c] * pad_q_token_len] * (pad_p_len - len(tokens)))[:pad_q_len] for tokens
       in batch_data['question_char_ids']]
-
+    # print(len(batch_data))
     return batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len
 
   def word_iter(self, set_name=None):
