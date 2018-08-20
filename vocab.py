@@ -19,7 +19,7 @@ This module implements the Vocab class for converting string to id and back
 """
 
 import numpy as np
-
+from collections import Counter
 
 class Vocab(object):
     """
@@ -52,10 +52,8 @@ class Vocab(object):
             token: a string
             cnt: a num indicating the count of the token to add, default is 1
         """
-        for token in tokens:
-            if cnt > 0:
-                if token in self.token_cnt:
-                    self.token_cnt[token] += cnt
+        counter = Counter(tokens)
+        self.token_cnt = dict(counter)
 
     def filter_tokens_by_cnt(self, min_cnt):
         """
@@ -64,9 +62,9 @@ class Vocab(object):
             min_cnt: tokens with frequency less than min_cnt is filtered
         """
         filtered_tokens = [token for token in self.initial_tokens if
-                           self.token_cnt[token] >= min_cnt or token in [self.pad_token, self.unk_token]]
+                           token in [self.pad_token, self.unk_token] or self.token_cnt[token] >= min_cnt]
         filtered_ids = [idx for idx, token in enumerate(self.initial_tokens) if
-                        self.token_cnt[token] >= min_cnt or token in [self.pad_token, self.unk_token]]
+                        token in [self.pad_token, self.unk_token] or self.token_cnt[token] >= min_cnt]
         # rebuild the token x id map
         self.embeddings = self.embeddings[filtered_ids]
         self.token2id = dict(zip(filtered_tokens, range(len(filtered_tokens))))

@@ -42,7 +42,7 @@ class RCModel(object):
     Implements the main reading comprehension model.
     """
 
-    def __init__(self, char_vocab, token_vocab, args, qtype_count=10):
+    def __init__(self, char_vocab, token_vocab, flag_vocab, args, qtype_count=10):
 
         # logging
         self.logger = logging.getLogger("Military AI")
@@ -67,6 +67,7 @@ class RCModel(object):
         # the vocab
         self.char_vocab = char_vocab
         self.token_vocab = token_vocab
+        self.flag_vocab = flag_vocab
 
         # session info
         sess_config = tf.ConfigProto()
@@ -106,6 +107,8 @@ class RCModel(object):
         """
         self.p_t = tf.placeholder(tf.int32, [None, None])
         self.q_t = tf.placeholder(tf.int32, [None, None])
+        self.p_f = tf.placeholder(tf.int32, [None, None])
+        self.q_f = tf.placeholder(tf.int32, [None, None])
         self.p_c = tf.placeholder(tf.int32, [None, None, None])
         self.q_c = tf.placeholder(tf.int32, [None, None, None])
         self.p_t_length = tf.placeholder(tf.int32, [None])
@@ -140,6 +143,19 @@ class RCModel(object):
             self.p_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.p_t)
             self.q_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.q_t)
 
+            with tf.variable_scope('flag_embedding'):
+                with tf.device('/cpu:0'):
+                    self.flag_embeddings = tf.get_variable(
+                        'flag_embedding',
+                        shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
+                        initializer=tf.constant_initializer(self.flag_vocab.embeddings),
+                        trainable=False
+                    )
+                p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
+                q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
+
+            self.p_t_emb = tf.concat([self.p_t_emb, p_f_emb], axis=-1)
+            self.q_t_emb = tf.concat([self.q_t_emb, q_f_emb], axis=-1)
             # if self.use_dropout:
             #     self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
             #     self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
@@ -330,6 +346,8 @@ class RCModel(object):
         for bitx, batch in enumerate(train_batches, 1):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
+                         self.p_f: batch['article_flag_ids'],
+                         self.q_f: batch['question_flag_ids'],
                          self.p_c: batch['article_char_ids'],
                          self.q_c: batch['question_char_ids'],
                          self.p_t_length: batch['article_tokens_len'],
@@ -422,6 +440,8 @@ class RCModel(object):
         for b_itx, batch in enumerate(eval_batches):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
+                         self.p_f: batch['article_flag_ids'],
+                         self.q_f: batch['question_flag_ids'],
                          self.p_c: batch['article_char_ids'],
                          self.q_c: batch['question_char_ids'],
                          self.p_t_length: batch['article_tokens_len'],

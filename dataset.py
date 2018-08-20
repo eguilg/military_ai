@@ -1,6 +1,8 @@
 import json
 import logging
 import jieba
+from tqdm import tqdm
+import jieba.posseg as pseg
 import re
 import numpy as np
 from gensim.models import Word2Vec, KeyedVectors
@@ -43,7 +45,7 @@ class MilitaryAiDataset(object):
   def __init__(self, train_preprocessed_files=[], train_raw_files=[],
                test_preprocessed_files=[], test_raw_files=[],
                char_embed_path="", token_embed_path="",
-               char_min_cnt=5, token_min_cnt=10,
+               char_min_cnt=1, token_min_cnt=3,
                dev_split=0.1, seed=502):
     self.logger = logging.getLogger("Military AI")
 
@@ -59,6 +61,7 @@ class MilitaryAiDataset(object):
     self.char_min_cnt = char_min_cnt
     self.token_min_cnt = token_min_cnt
     self.all_tokens = []
+    self.all_flags = []
     self.all_chars = []
 
     self._load_dataset()
@@ -105,7 +108,7 @@ class MilitaryAiDataset(object):
         testSet = self._preprocess_raw(self.test_raw_path[i], self.test_preprocessed_path[i])
       self.test_set += testSet
 
-  def _sample_article(self, article_tokens, question_tokens, max_token_num=500):
+  def _sample_article(self, article_tokens, article_flags, question_tokens, max_token_num=500):
     """
     Sample the article to tokens len less than max_token_num
     :param article_tokens:
@@ -114,18 +117,20 @@ class MilitaryAiDataset(object):
     :return:
     """
     if len(article_tokens) <= max_token_num:
-      return article_tokens
-    sentences = []
-    cur_s = []
+      return article_tokens, article_flags
+    sentences, sentences_f = [], []
+    cur_s, cur_s_f = [], []
     question = ''.join(question_tokens)
     scorces = []
-    cand = []
-    for idx, token in enumerate(article_tokens):
+    cand, cand_f = [], []
+    for idx, (token, flag) in enumerate(zip(article_tokens, article_flags)):
       cur_s.append(token)
+      cur_s_f.append(flag)
 
       if token in '\001。!！?？;；' or idx == len(article_tokens) - 1:
         sentences.append(cur_s)
-        cur_s = []
+        sentences_f.append(cur_s_f)
+        cur_s, cur_s_f = [], []
         continue
 
     for s in sentences:
@@ -139,6 +144,7 @@ class MilitaryAiDataset(object):
 
     # add the title to candidates
     cand.extend(sentences[0])
+    cand_f.extend(sentences_f[0])
     rank = np.argsort(scorces)
     selected_s_idxs = set()
     selected_s_idxs.add(0)
@@ -146,20 +152,25 @@ class MilitaryAiDataset(object):
       if idx in selected_s_idxs:
         continue
       cand.extend(sentences[idx])
+      cand_f.extend(sentences_f[idx])
       selected_s_idxs.add(0)
       h = idx - 1
       t = idx + 1
       if h < len(sentences) and h not in selected_s_idxs:
         cand.extend(sentences[h])
+        cand_f.extend(sentences_f[h])
         selected_s_idxs.add(h)
       if t < len(sentences) and t not in selected_s_idxs:
         cand.extend(sentences[t])
+        cand_f.extend(sentences_f[t])
         selected_s_idxs.add(t)
 
     if len(cand) > max_token_num:
       cand = cand[:max_token_num]
+    if len(cand_f) > max_token_num:
+      cand_f = cand_f[:max_token_num]
 
-    return cand
+    return cand, cand_f
 
   def _preprocess_raw(self, data_path, preprocessed_path, train=False):
     """
@@ -172,6 +183,7 @@ class MilitaryAiDataset(object):
     """
     from feature_handler.question_handler import QuestionTypeHandler
     ques_type_handler = QuestionTypeHandler()
+    # jieba.enable_parallel(multiprocessing.cpu_count())
     with open(data_path, 'r') as fp:
       with open(preprocessed_path, 'w') as fo:
         all_json: list = json.load(fp)
@@ -182,35 +194,41 @@ class MilitaryAiDataset(object):
           all_json[i]['article_content'] = re.sub('[\u3000]', '', all_json[i]['article_content'])
           #  using '\001' as paragraph separator
           all_json[i]['article_content'] = re.sub('[\r\n]', '\001', all_json[i]['article_content'])
-          all_json[i]['article_tokens'] = list(filter(lambda t: t.strip() != '',
-                                                      jieba.cut(all_json[i]['article_content'],
-                                                                cut_all=False, HMM=True)))
+          tokens = pseg.lcut(all_json[i]['article_content'], HMM=False)
+          all_json[i]['article_tokens'] = [token.word for token in tokens]
+          article_flags = [token.flag for token in tokens]
 
-          self.all_tokens.extend(all_json[i]['article_tokens'])
-          self.all_chars.extend(list(''.join(all_json[i]['article_tokens'])))
+          self.all_tokens.append(all_json[i]['article_tokens'])
+          self.all_flags.extend(article_flags)
+          self.all_chars.append(list(''.join(all_json[i]['article_tokens'])))
           all_json[i].pop('article_content')
           for j in range(len(all_json[i]['questions'])):
 
             all_json[i]['questions'][j]['question'] = re.sub('[\n\t\r\u3000]', '',
                                                              all_json[i]['questions'][j]['question'])
-            all_json[i]['questions'][j]['question_tokens'] = list(filter(lambda t: t.strip() != '',
-                                                                         jieba.cut(
-                                                                           all_json[i]['questions'][j]['question'],
-                                                                           cut_all=False, HMM=True)))
+            tokens = pseg.lcut(all_json[i]['questions'][j]['question'], HMM=False)
+            all_json[i]['questions'][j]['question_tokens'] = [token.word for token in tokens]
+            all_json[i]['questions'][j]['question_flags'] = [token.flag for token in tokens]
+
             all_json[i]['questions'][j].pop('question')
-            all_json[i]['questions'][j]['sampled_article_tokens'] = self._sample_article(
-              all_json[i]['article_tokens'],
+            all_json[i]['questions'][j]['sampled_article_tokens'], \
+            all_json[i]['questions'][j]['sampled_article_flags'] = self._sample_article(
+              all_json[i]['article_tokens'], article_flags,
               all_json[i]['questions'][j]['question_tokens'])
+
             sample = all_json[i].copy()
             sample['article_tokens'] = all_json[i]['questions'][j]['sampled_article_tokens']
+            sample['article_flags'] = all_json[i]['questions'][j]['sampled_article_flags']
             sample['article_tokens_len'] = len(sample['article_tokens'])
 
             sample['question_id'] = all_json[i]['questions'][j]['questions_id']
             sample['question_tokens'] = all_json[i]['questions'][j]['question_tokens']
+            sample['question_flags'] = all_json[i]['questions'][j]['question_flags']
             sample['question_tokens_len'] = len(sample['question_tokens'])
 
-            self.all_tokens.extend(sample['question_tokens'])
-            self.all_chars.extend(list(''.join(sample['question_tokens'])))
+            self.all_tokens.append(sample['question_tokens'])
+            self.all_flags.extend(sample['question_flags'])
+            self.all_chars.append(list(''.join(sample['question_tokens'])))
 
             sample['qtype_vec'] = [0.0] * 10
             if train:
@@ -219,12 +237,11 @@ class MilitaryAiDataset(object):
               sample['qtype_vec'] = type_vec.tolist()
               all_json[i]['questions'][j]['answer'] = re.sub('[\n\t\r\u3000]', '',
                                                              all_json[i]['questions'][j]['answer'])
-              all_json[i]['questions'][j]['answer_tokens'] = list(filter(lambda t: t.strip() != '',
-                                                                         jieba.cut(
-                                                                           all_json[i]['questions'][j]['answer'],
-                                                                           cut_all=False, HMM=True)))
-
+              tokens = pseg.lcut(all_json[i]['questions'][j]['answer'], HMM=False)
+              all_json[i]['questions'][j]['answer_tokens'] = [token.word for token in tokens]
+              all_json[i]['questions'][j]['answer_flags'] = [token.flag for token in tokens]
               sample['answer_tokens'] = all_json[i]['questions'][j]['answer_tokens']
+              sample['answer_flags'] = all_json[i]['questions'][j]['answer_flags']
               sample['answer_tokens_len'] = len(sample['answer_tokens'])
 
               answer_tokens = sample['answer_tokens']
@@ -235,7 +252,7 @@ class MilitaryAiDataset(object):
               sample['answer'] = all_json[i]['questions'][j]['answer']
               sample['answer_token_start'] = all_json[i]['questions'][j]['answer_token_start']
               sample['answer_token_end'] = all_json[i]['questions'][j]['answer_token_end']
-
+            sample.pop('questions')
             dataset.append(sample)
           fo.write(json.dumps(all_json[i]) + '\n')
     return dataset
@@ -265,11 +282,13 @@ class MilitaryAiDataset(object):
       for lidx, line in enumerate(fp):
         row = json.loads(line.strip())
 
-        self.all_tokens.extend(row['article_tokens'])
-        self.all_chars.extend(list(''.join(row['article_tokens'])))
+        self.all_tokens.append(row['article_tokens'])
+
+        self.all_chars.append(list(''.join(row['article_tokens'])))
         for j in range(len(row['questions'])):
           sample = row.copy()
           sample['article_tokens'] = row['questions'][j]['sampled_article_tokens']
+          sample['article_flags'] = row['questions'][j]['sampled_article_flags']
           sample['article_tokens_len'] = len(sample['article_tokens'])
 
           # sample['article_chars'] = list(''.join(row['questions'][j]['sampled_article_tokens']))
@@ -277,12 +296,14 @@ class MilitaryAiDataset(object):
 
           sample['question_id'] = row['questions'][j]['questions_id']
           sample['question_tokens'] = row['questions'][j]['question_tokens']
+          sample['question_flags'] = row['questions'][j]['question_flags']
           sample['question_tokens_len'] = len(sample['question_tokens'])
           # sample['question_chars'] = list(''.join(row['questions'][j]['question_tokens']))
           # sample['question_chars_len'] = len(sample['question_chars'])
 
-          self.all_tokens.extend(sample['question_tokens'])
-          self.all_chars.extend(list(''.join(sample['question_tokens'])))
+          self.all_tokens.append(sample['question_tokens'])
+          self.all_flags.extend(sample['article_flags']+sample['question_flags'])
+          self.all_chars.append(list(''.join(sample['question_tokens'])))
           sample['qtype_vec'] = [0.0]*ques_type_handler.type_count
           if train:
             question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
@@ -291,6 +312,7 @@ class MilitaryAiDataset(object):
 
             sample['answer'] = row['questions'][j]['answer']
             sample['answer_tokens'] = row['questions'][j]['answer_tokens']
+            sample['answer_flags'] = row['questions'][j]['answer_flags']
             sample['answer_tokens_len'] = len(sample['answer_tokens'])
             sample['answer_token_start'] = row['questions'][j]['answer_token_start']
             sample['answer_token_end'] = row['questions'][j]['answer_token_end']
@@ -307,7 +329,7 @@ class MilitaryAiDataset(object):
     except Exception:
       self.logger.info("Training char embedding model")
       self.char_wv = Word2Vec(self.all_chars, size=75, window=5, compute_loss=True,
-                              min_count=1, iter=75, workers=multiprocessing.cpu_count()).wv
+                              min_count=1, iter=60, workers=multiprocessing.cpu_count()).wv
       self.logger.info("Saving char embedding model")
       self.char_wv.save(self.char_embed_path)
     try:
@@ -316,9 +338,30 @@ class MilitaryAiDataset(object):
     except Exception:
       self.logger.info("Training token embedding model")
       self.token_wv = Word2Vec(self.all_tokens, size=300, window=5, compute_loss=True,
-                               min_count=1, iter=75, workers=multiprocessing.cpu_count()).wv
+                               min_count=1, iter=60, workers=multiprocessing.cpu_count()).wv
       self.logger.info("Saving token embedding model")
       self.token_wv.save(self.token_embed_path)
+
+
+    # self.char_wv['<unk>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
+    # self.char_wv['<pad>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
+    # self.token_wv['<unk>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
+    # self.token_wv['<pad>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
+
+  def _get_vocabs(self):
+
+    self.unique_flags = sorted(set(self.all_flags))
+    del self.all_flags
+
+    def convert_to_one_hot(C):
+      return np.eye(C)[np.linspace(0, C - 1, C - 1, dtype=np.int32).reshape(-1)].T
+
+    flags_embeddings = convert_to_one_hot(len(self.unique_flags))
+
+    self.unique_flags.insert(0, '<unk>')
+    self.unique_flags.insert(0, '<pad>')
+    flags_embeddings = np.concatenate([[np.zeros(flags_embeddings.shape[1], dtype=np.float32),
+        np.ones(flags_embeddings.shape[1], dtype=np.float32) * 0.05, ], flags_embeddings], axis=0)
 
     self.token_wv.index2word.insert(0, '<unk>')
     self.token_wv.index2word.insert(0, '<pad>')
@@ -331,14 +374,11 @@ class MilitaryAiDataset(object):
     self.char_wv.vectors = np.concatenate(
       [[np.zeros(self.char_wv.vector_size, dtype=np.float32),
         np.ones(self.char_wv.vector_size, dtype=np.float32) * 0.05, ], self.char_wv.vectors], axis=0)
-    # self.char_wv['<unk>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
-    # self.char_wv['<pad>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
-    # self.token_wv['<unk>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
-    # self.token_wv['<pad>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
 
-  def _get_vocabs(self):
+    self.flag_vocab = Vocab(self.unique_flags, flags_embeddings)
+
     self.char_vocab = Vocab(self.char_wv.index2word, self.char_wv.vectors)
-    self.char_vocab.count(self.all_chars)
+    self.char_vocab.count([y for x in self.all_chars for y in x])
     unfiltered_char_vocab_size = self.char_vocab.size()
     self.char_vocab.filter_tokens_by_cnt(min_cnt=self.char_min_cnt)
     filtered_num = unfiltered_char_vocab_size - self.char_vocab.size()
@@ -346,12 +386,14 @@ class MilitaryAiDataset(object):
                                                                                      self.char_vocab.size()))
 
     self.token_vocab = Vocab(self.token_wv.index2word, self.token_wv.vectors)
-    self.token_vocab.count(self.all_tokens)
+    self.token_vocab.count([y for x in self.all_tokens for y in x])
     unfiltered_token_vocab_size = self.token_vocab.size()
     self.token_vocab.filter_tokens_by_cnt(min_cnt=self.token_min_cnt)
     filtered_num = unfiltered_token_vocab_size - self.token_vocab.size()
     self.logger.info('After filter {} tokens, the final token vocab size is {}'.format(filtered_num,
                                                                                        self.token_vocab.size()))
+
+
     del self.char_wv, self.token_wv
     del self.all_chars, self.all_tokens
 
@@ -367,8 +409,10 @@ class MilitaryAiDataset(object):
     """
     batch_data = {'raw_data': [data[i] for i in indices],
                   'question_token_ids': [],
+                  'question_flag_ids': [],
                   'question_tokens_len': [],
                   'article_token_ids': [],
+                  'article_flag_ids': [],
                   'article_tokens_len': [],
                   'question_char_ids': [],
                   'article_char_ids': [],
@@ -393,6 +437,8 @@ class MilitaryAiDataset(object):
       batch_data['question_tokens_len'].append(sample['question_tokens_len'])
       batch_data['article_token_ids'].append(sample['article_token_ids'])
       batch_data['article_tokens_len'].append(sample['article_tokens_len'])
+      batch_data['question_flag_ids'].append(sample['question_flag_ids'])
+      batch_data['article_flag_ids'].append(sample['article_flag_ids'])
 
       batch_data['qtype_vecs'].append(sample['qtype_vec'])
     batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
@@ -418,6 +464,7 @@ class MilitaryAiDataset(object):
     """
 
     pad_id_t = self.token_vocab.get_id(self.token_vocab.pad_token)
+    pad_id_f = self.flag_vocab.get_id(self.flag_vocab.pad_token)
     pad_id_c = self.char_vocab.get_id(self.char_vocab.pad_token)
     pad_p_len = min(self.p_max_tokens_len, max(batch_data['article_tokens_len']))
     pad_q_len = min(self.q_max_tokens_len, max(batch_data['question_tokens_len']))
@@ -426,6 +473,11 @@ class MilitaryAiDataset(object):
                                        for ids in batch_data['article_token_ids']]
     batch_data['question_token_ids'] = [(ids + [pad_id_t] * (pad_q_len - len(ids)))[: pad_q_len]
                                         for ids in batch_data['question_token_ids']]
+
+    batch_data['article_flag_ids'] = [(ids + [pad_id_f] * (pad_p_len - len(ids)))[: pad_p_len]
+                                       for ids in batch_data['article_flag_ids']]
+    batch_data['question_flag_ids'] = [(ids + [pad_id_f] * (pad_q_len - len(ids)))[: pad_q_len]
+                                        for ids in batch_data['question_flag_ids']]
 
     batch_data['article_c_len'] = []
     for article in batch_data['article_char_ids']:
@@ -481,6 +533,7 @@ class MilitaryAiDataset(object):
     """
     char2idx = self.char_vocab.token2id
     token2idx = self.token_vocab.token2id
+    flag2idx = self.flag_vocab.token2id
     for data_set in [self.train_set, self.test_set]:
       if data_set is None:
         continue
@@ -497,9 +550,13 @@ class MilitaryAiDataset(object):
 
         sample['question_token_ids'] = [token2idx[token] if token in token2idx.keys() else token2idx['<unk>']
                                         for token in sample['question_tokens']]
-
         sample['article_token_ids'] = [token2idx[token] if token in token2idx.keys() else token2idx['<unk>']
                                        for token in sample['article_tokens']]
+
+        sample['question_flag_ids'] = [flag2idx[flag] if flag in flag2idx.keys() else flag2idx['<unk>']
+                                       for flag in sample['question_flags']]
+        sample['article_flag_ids'] = [flag2idx[flag] if flag in flag2idx.keys() else flag2idx['<unk>']
+                                       for flag in sample['article_flags']]
 
   def gen_mini_batches(self, set_name, batch_size, shuffle=True):
     """
@@ -533,5 +590,5 @@ if __name__ == '__main__':
   logging.basicConfig(level=logging.INFO)  # 设置日志级别
   data = MilitaryAiDataset(['./data/train/question_preprocessed.json'],
                            ['./data/train/question.json'],
-                           char_embed_path='./data/embedding/char_embed300.wv',
+                           char_embed_path='./data/embedding/char_embed75.wv',
                            token_embed_path='./data/embedding/token_embed300.wv')
