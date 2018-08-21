@@ -208,9 +208,9 @@ def evaluate(args):
     rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Evaluating the model on dev set...')
     dev_batches = mai_data.gen_mini_batches('dev', args.batch_size, shuffle=False)
-    dev_loss, dev_bleu_rouge = rc_model.evaluate(
+    dev_loss, dev_main_loss, dev_bleu_rouge = rc_model.evaluate(
         dev_batches, result_dir=args.result_dir, result_prefix='dev.predicted')
-    logger.info('Loss on dev set: {}'.format(dev_loss))
+    logger.info('Loss on dev set: {}'.format(dev_main_loss))
     logger.info('Result on dev set: {}'.format(dev_bleu_rouge))
     logger.info('Predicted answers are saved to {}'.format(os.path.join(args.result_dir)))
 
