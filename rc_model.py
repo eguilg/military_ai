@@ -357,22 +357,26 @@ class RCModel(object):
                          self.q_t: batch['question_token_ids'],
                          self.p_f: batch['article_flag_ids'],
                          self.q_f: batch['question_flag_ids'],
-                         self.p_c: batch['article_char_ids'],
-                         self.q_c: batch['question_char_ids'],
+                         self.p_pad_len: batch['article_pad_len'],
+                         self.q_pad_len: batch['question_pad_len'],
                          self.p_t_length: batch['article_tokens_len'],
                          self.q_t_length: batch['question_tokens_len'],
-                         self.p_c_length: batch['article_c_len'],
-                         self.q_c_length: batch['question_c_len'],
+
                          self.start_label: batch['start_id'],
                          self.end_label: batch['end_id'],
                          self.wiqB: batch['wiqB'],
-
                          self.qtype_vec: batch['qtype_vecs'],
-                         self.p_CL: batch['article_CL'],
-                         self.q_CL: batch['question_CL'],
-                         self.p_pad_len: batch['article_pad_len'],
-                         self.q_pad_len: batch['question_pad_len'],
+
                          self.dropout_keep_prob: dropout_keep_prob}
+            if self.use_char_emb:
+                feed_dict.update(
+                        {self.p_c: batch['article_char_ids'],
+                         self.q_c: batch['question_char_ids'],
+                         self.p_c_length: batch['article_c_len'],
+                         self.q_c_length: batch['question_c_len'],
+                         self.p_CL: batch['article_CL'],
+                         self.q_CL: batch['question_CL']
+                         })
             # print('article CL:{}\n'
             #       'question_CL:{}\n'
             #       'article pad len:{}\n'
@@ -451,21 +455,27 @@ class RCModel(object):
                          self.q_t: batch['question_token_ids'],
                          self.p_f: batch['article_flag_ids'],
                          self.q_f: batch['question_flag_ids'],
-                         self.p_c: batch['article_char_ids'],
-                         self.q_c: batch['question_char_ids'],
+                         self.p_pad_len: batch['article_pad_len'],
+                         self.q_pad_len: batch['question_pad_len'],
                          self.p_t_length: batch['article_tokens_len'],
                          self.q_t_length: batch['question_tokens_len'],
-                         self.p_c_length: batch['article_c_len'],
-                         self.q_c_length: batch['question_c_len'],
+
                          self.start_label: batch['start_id'],
                          self.end_label: batch['end_id'],
                          self.wiqB: batch['wiqB'],
                          self.qtype_vec: batch['qtype_vecs'],
-                         self.p_CL: batch['article_CL'],
-                         self.q_CL: batch['question_CL'],
-                         self.p_pad_len: batch['article_pad_len'],
-                         self.q_pad_len: batch['question_pad_len'],
+
                          self.dropout_keep_prob: 1.0}
+
+            if self.use_char_emb:
+                feed_dict.update(
+                    {self.p_c: batch['article_char_ids'],
+                     self.q_c: batch['question_char_ids'],
+                     self.p_c_length: batch['article_c_len'],
+                     self.q_c_length: batch['question_c_len'],
+                     self.p_CL: batch['article_CL'],
+                     self.q_CL: batch['question_CL']
+                     })
             start_probs, end_probs, loss, main_loss = self.sess.run([self.start_probs,
                                                                      self.end_probs, self.loss, self.main_loss],
                                                                     feed_dict)

@@ -60,6 +60,7 @@ class MilitaryAiDataset(object):
     self.token_embed_path = token_embed_path
     self.char_min_cnt = char_min_cnt
     self.token_min_cnt = token_min_cnt
+    self.use_char_emb = use_char_emb
     self.all_tokens = []
     self.all_flags = []
     self.all_chars = []
@@ -425,8 +426,9 @@ class MilitaryAiDataset(object):
                   }
     for sidx, sample in enumerate(batch_data['raw_data']):
 
-      batch_data['question_char_ids'].append(sample['question_char_ids'])
-      batch_data['article_char_ids'].append(sample['article_char_ids'])
+      if self.use_char_emb:
+        batch_data['question_char_ids'].append(sample['question_char_ids'])
+        batch_data['article_char_ids'].append(sample['article_char_ids'])
       batch_data['question_token_ids'].append(sample['question_token_ids'])
       batch_data['question_tokens_len'].append(sample['question_tokens_len'])
       batch_data['article_token_ids'].append(sample['article_token_ids'])
@@ -438,8 +440,9 @@ class MilitaryAiDataset(object):
     batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
     batch_data['article_pad_len'] = pad_p_len
     batch_data['question_pad_len'] = pad_q_len
-    batch_data['article_CL'] = pad_p_token_len
-    batch_data['question_CL'] = pad_q_token_len
+    if self.use_char_emb:
+      batch_data['article_CL'] = pad_p_token_len
+      batch_data['question_CL'] = pad_q_token_len
     for sample in batch_data['raw_data']:
       if 'answer_tokens' in sample and len(sample['answer_tokens']):
 
@@ -472,27 +475,29 @@ class MilitaryAiDataset(object):
                                        for ids in batch_data['article_flag_ids']]
     batch_data['question_flag_ids'] = [(ids + [pad_id_f] * (pad_q_len - len(ids)))[: pad_q_len]
                                         for ids in batch_data['question_flag_ids']]
+    pad_p_token_len = self.p_token_max_len
+    pad_q_token_len = self.q_token_max_len
+    if self.use_char_emb:
+      batch_data['article_c_len'] = []
+      for article in batch_data['article_char_ids']:
+        batch_data['article_c_len'] += [len(token) for token in article] + [0] * (pad_p_len - len(article))
 
-    batch_data['article_c_len'] = []
-    for article in batch_data['article_char_ids']:
-      batch_data['article_c_len'] += [len(token) for token in article] + [0] * (pad_p_len - len(article))
+      batch_data['question_c_len'] = []
+      for question in batch_data['question_char_ids']:
+        batch_data['question_c_len'] += [len(token) for token in question] + [0] * (pad_q_len - len(question))
 
-    batch_data['question_c_len'] = []
-    for question in batch_data['question_char_ids']:
-      batch_data['question_c_len'] += [len(token) for token in question] + [0] * (pad_q_len - len(question))
+      pad_p_token_len = min(self.p_token_max_len, max(batch_data['article_c_len']))
+      pad_q_token_len = min(self.q_token_max_len, max(batch_data['question_c_len']))
 
-    pad_p_token_len = min(self.p_token_max_len, max(batch_data['article_c_len']))
-    pad_q_token_len = min(self.q_token_max_len, max(batch_data['question_c_len']))
+      batch_data['article_char_ids'] = [
+        ([(ids + [pad_id_c] * (pad_p_token_len - len(ids)))[:pad_p_token_len] for ids in tokens] + [
+          [pad_id_c] * pad_p_token_len] * (pad_p_len - len(tokens)))[:pad_p_len] for tokens
+        in batch_data['article_char_ids']]
 
-    batch_data['article_char_ids'] = [
-      ([(ids + [pad_id_c] * (pad_p_token_len - len(ids)))[:pad_p_token_len] for ids in tokens] + [
-        [pad_id_c] * pad_p_token_len] * (pad_p_len - len(tokens)))[:pad_p_len] for tokens
-      in batch_data['article_char_ids']]
-
-    batch_data['question_char_ids'] = [
-      ([(ids + [pad_id_c] * (pad_q_token_len - len(ids)))[:pad_q_token_len] for ids in tokens] + [
-        [pad_id_c] * pad_q_token_len] * (pad_p_len - len(tokens)))[:pad_q_len] for tokens
-      in batch_data['question_char_ids']]
+      batch_data['question_char_ids'] = [
+        ([(ids + [pad_id_c] * (pad_q_token_len - len(ids)))[:pad_q_token_len] for ids in tokens] + [
+          [pad_id_c] * pad_q_token_len] * (pad_p_len - len(tokens)))[:pad_q_len] for tokens
+        in batch_data['question_char_ids']]
     # print(len(batch_data))
     return batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len
 
@@ -528,16 +533,19 @@ class MilitaryAiDataset(object):
     char2idx = self.char_vocab.token2id
     token2idx = self.token_vocab.token2id
     flag2idx = self.flag_vocab.token2id
+
+
     for data_set in [self.train_set, self.test_set]:
       if data_set is None:
         continue
       for sample in data_set:
-        sample['question_char_ids'] = [
-          [char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
-          for token in sample['question_tokens']]
-        sample['article_char_ids'] = [
-          [char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
-          for token in sample['article_tokens']]
+        if self.use_char_emb:
+          sample['question_char_ids'] = [
+            [char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
+            for token in sample['question_tokens']]
+          sample['article_char_ids'] = [
+            [char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
+            for token in sample['article_tokens']]
 
         # sample['question_token_max_len'] = max([len(token) for token in sample['question_tokens']])
         # sample['article_token_max_len'] = max([len(token) for token in sample['article_tokens']])
