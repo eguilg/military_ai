@@ -46,7 +46,7 @@ class MilitaryAiDataset(object):
                test_preprocessed_files=[], test_raw_files=[],
                char_embed_path="", token_embed_path="",
                char_min_cnt=1, token_min_cnt=3,
-               dev_split=0.1, seed=502):
+               dev_split=0.1, seed=502, use_char_emb=False):
     self.logger = logging.getLogger("Military AI")
 
     self.train_set, self.test_set = [], []
@@ -342,12 +342,6 @@ class MilitaryAiDataset(object):
       self.logger.info("Saving token embedding model")
       self.token_wv.save(self.token_embed_path)
 
-
-    # self.char_wv['<unk>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
-    # self.char_wv['<pad>'] = np.zeros(self.char_wv.vector_size, dtype=np.float32)
-    # self.token_wv['<unk>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
-    # self.token_wv['<pad>'] = np.zeros(self.token_wv.vector_size, dtype=np.float32)
-
   def _get_vocabs(self):
 
     self.unique_flags = sorted(set(self.all_flags))
@@ -393,7 +387,6 @@ class MilitaryAiDataset(object):
     self.logger.info('After filter {} tokens, the final token vocab size is {}'.format(filtered_num,
                                                                                        self.token_vocab.size()))
 
-
     del self.char_wv, self.token_wv
     del self.all_chars, self.all_tokens
 
@@ -431,6 +424,7 @@ class MilitaryAiDataset(object):
                   'question_CL': 0,
                   }
     for sidx, sample in enumerate(batch_data['raw_data']):
+
       batch_data['question_char_ids'].append(sample['question_char_ids'])
       batch_data['article_char_ids'].append(sample['article_char_ids'])
       batch_data['question_token_ids'].append(sample['question_token_ids'])

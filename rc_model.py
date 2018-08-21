@@ -53,6 +53,7 @@ class RCModel(object):
         self.hidden_size = args.hidden_size
         self.optim_type = args.optim
         self.learning_rate = args.learning_rate
+        self.lr_decay = 0.98
         self.weight_decay = args.weight_decay
         self.use_dropout = args.dropout_keep_prob < 1
         self.use_char_emb = args.use_char_emb
@@ -310,7 +311,7 @@ class RCModel(object):
 
                 self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                     labels=self.qtype_vec, logits=type_logits))
-            self.loss = tf.add(self.main_loss, self.type_loss)
+            self.loss = tf.add(self.main_loss, 0.2 * self.type_loss)
         else:
             self.loss = self.main_loss
         if self.weight_decay > 0:
@@ -322,14 +323,22 @@ class RCModel(object):
         """
         Selects the training algorithm and creates a train operation with it
         """
+        global_step = tf.contrib.framework.get_or_create_global_step()
+        self.decay_learning_rate = tf.train.exponential_decay(
+            self.learning_rate,
+            global_step,
+            300,
+            self.lr_decay
+        )
+
         if self.optim_type == 'adagrad':
-            self.optimizer = tf.train.AdagradOptimizer(self.learning_rate)
+            self.optimizer = tf.train.AdagradOptimizer(self.decay_learning_rate)
         elif self.optim_type == 'adam':
-            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(self.decay_learning_rate)
         elif self.optim_type == 'rprop':
-            self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate)
+            self.optimizer = tf.train.RMSPropOptimizer(self.decay_learning_rate)
         elif self.optim_type == 'sgd':
-            self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+            self.optimizer = tf.train.GradientDescentOptimizer(self.decay_learning_rate)
         else:
             raise NotImplementedError('Unsupported optimizer: {}'.format(self.optim_type))
         self.train_op = self.optimizer.minimize(self.loss)
