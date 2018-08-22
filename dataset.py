@@ -1,6 +1,7 @@
 import json
 import logging
 import jieba
+import os
 from tqdm import tqdm
 import jieba.posseg as pseg
 import re
@@ -122,54 +123,64 @@ class MilitaryAiDataset(object):
     sentences, sentences_f = [], []
     cur_s, cur_s_f = [], []
     question = ''.join(question_tokens)
-    scorces = []
+
     cand, cand_f = [], []
     for idx, (token, flag) in enumerate(zip(article_tokens, article_flags)):
       cur_s.append(token)
       cur_s_f.append(flag)
 
-      if token in '\001。!！?？;；' or idx == len(article_tokens) - 1:
+      if token in '\001。!！?？' or idx == len(article_tokens) - 1:
+        # if len(cur_s) >= 2:
         sentences.append(cur_s)
         sentences_f.append(cur_s_f)
         cur_s, cur_s_f = [], []
         continue
 
+    rl = RougeL()
     for s in sentences:
-      s_str = ''.join(s)
-      bl = Bleu()
-      bl.add_inst(s_str, question)
-      try:
-        scorces.append(bl.get_score())
-      except ZeroDivisionError:
-        scorces.append(0.0)
+      rl.add_inst(''.join(s), question)
+    scores = rl.r_scores
+    s_rank = np.zeros(len(sentences))
+    arg_sorted = list(reversed(np.argsort(scores)))
 
-    # add the title to candidates
+    for i in range(15):
+      if i >= len(sentences):
+        break
+      pos = arg_sorted[i]
+      if pos in [0, 1, len(sentences) - 1]:
+        continue
+      score = scores[pos]
+      nb_score = score
+      fnb_score = 0.5 * score
+      ffnb_score = 0.25 * score
+      block_scores = np.array([fnb_score, nb_score, score, nb_score, fnb_score, ffnb_score])
+      block = s_rank[pos-2: pos+4]
+      block_scores = block_scores[:len(block)]
+      block_scores = np.max(np.stack([block_scores, block]), axis=0)
+      s_rank[pos - 2: pos + 4] = block_scores
+
     cand.extend(sentences[0])
     cand_f.extend(sentences_f[0])
-    rank = np.argsort(scorces)
-    selected_s_idxs = set()
-    selected_s_idxs.add(0)
-    for idx in list(reversed(rank))[:15]:
-      if idx in selected_s_idxs:
-        continue
-      cand.extend(sentences[idx])
-      cand_f.extend(sentences_f[idx])
-      selected_s_idxs.add(0)
-      h = idx - 1
-      t = idx + 1
-      if h < len(sentences) and h not in selected_s_idxs:
-        cand.extend(sentences[h])
-        cand_f.extend(sentences_f[h])
-        selected_s_idxs.add(h)
-      if t < len(sentences) and t not in selected_s_idxs:
-        cand.extend(sentences[t])
-        cand_f.extend(sentences_f[t])
-        selected_s_idxs.add(t)
+    cand.extend(sentences[1])
+    cand_f.extend(sentences_f[1])
+    cand.extend(sentences[-1])
+    cand_f.extend(sentences_f[-1])
 
-    if len(cand) > max_token_num:
-      cand = cand[:max_token_num]
-    if len(cand_f) > max_token_num:
-      cand_f = cand_f[:max_token_num]
+    rank = list(reversed(np.argsort(s_rank)))
+
+    for pos in rank:
+      if pos in [0, 1, len(sentences)-1]:
+        continue
+      if s_rank[pos] > 0:
+        cand.extend(sentences[pos])
+        cand_f.extend(sentences_f[pos])
+        if len(cand) > max_token_num:
+          break
+      else:
+        break
+
+    cand = cand[:max_token_num]
+    cand_f = cand_f[:max_token_num]
 
     return cand, cand_f
 
@@ -185,12 +196,13 @@ class MilitaryAiDataset(object):
     from feature_handler.question_handler import QuestionTypeHandler
     ques_type_handler = QuestionTypeHandler()
     # jieba.enable_parallel(multiprocessing.cpu_count())
+    if os.path.isfile('./data/embedding/dict.txt.big'):
+      jieba.set_dictionary('./data/embedding/dict.txt.big')
     with open(data_path, 'r') as fp:
       with open(preprocessed_path, 'w') as fo:
         all_json: list = json.load(fp)
         dataset = []
-        for i in range(len(all_json)):
-
+        for i in tqdm(range(len(all_json))):
           all_json[i]['article_content'] = all_json[i]['article_title'] + '\001' + all_json[i]['article_content']
           all_json[i]['article_content'] = re.sub('[\u3000]', '', all_json[i]['article_content'])
           #  using '\001' as paragraph separator

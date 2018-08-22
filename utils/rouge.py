@@ -5,42 +5,48 @@ class RougeL(object):
     def __init__(self, gamma=1.2):
         self.gamma = gamma  # gamma 为常量
         self.inst_scores = []
+        self.r_scores = []
+        self.p_scores = []
 
-    def lcs(self, string: str, sub: str) -> int:
-        """计算最长公共子序列
-
-        Arguments:
-            string {str} -- 字符串
-            sub {str} -- 字符串
-
-        Returns:
-            int -- 最长公共子序列的长度
+    def _lcs(self, x, y):
         """
-
-        str_length = len(string)
-        sub_length = len(sub)
-
-        lengths = np.zeros(((str_length + 1), (sub_length + 1)), dtype=np.int)
-        for i in range(1, str_length + 1):
-            for j in range(1, sub_length + 1):
-                if string[i - 1] == sub[j - 1]:
-                    lengths[i][j] = lengths[i - 1][j - 1] + 1
+        Computes the length of the longest common subsequence (lcs) between two
+        strings. The implementation below uses a DP programming algorithm and runs
+        in O(nm) time where n = len(x) and m = len(y).
+        Source: http://www.algorithmist.com/index.php/Longest_Common_Subsequence
+        Args:
+          x: collection of words
+          y: collection of words
+        Returns:
+          Table of dictionary of coord and len lcs
+        """
+        n, m = len(x), len(y)
+        table = dict()
+        for i in range(n + 1):
+            for j in range(m + 1):
+                if i == 0 or j == 0:
+                    table[i, j] = 0
+                elif x[i - 1] == y[j - 1]:
+                    table[i, j] = table[i - 1, j - 1] + 1
                 else:
-                    lengths[i][j] = max(lengths[i - 1][j], lengths[i][j - 1])
-        return lengths[str_length, sub_length]
+                    table[i, j] = max(table[i - 1, j], table[i, j - 1])
 
-    # def lcs(self, string: str, sub: str) -> int:
-    #     m = [[0]*(len(sub) + 1)]*(len(string) + 1)  # 生成0矩阵，为方便后续计算，比字符串长度多了一列
-    #     mmax = 0  # 最长匹配的长度
-    #     # p = 0  # 最长匹配对应在s1中的最后一位
-    #     for i in range(len(string)):
-    #         for j in range(len(sub)):
-    #             if string[i] == sub[j]:
-    #                 m[i + 1][j + 1] = m[i][j] + 1
-    #                 if m[i + 1][j + 1] > mmax:
-    #                     mmax = m[i + 1][j + 1]
-    #                     # p = i + 1
-    #     return mmax  # 返回最长子串及其长度
+        return table
+
+    def lcs(self, x, y):
+        """
+        Returns the length of the Longest Common Subsequence between sequences x
+        and y.
+        Source: http://www.algorithmist.com/index.php/Longest_Common_Subsequence
+        Args:
+          x: sequence of words
+          y: sequence of words
+        Returns
+          integer: Length of LCS between x and y
+        """
+        table = self._lcs(x, y)
+        n, m = len(x), len(y)
+        return table[n, m]
 
     def add_inst(self, cand: str, ref: str):
         """根据参考答案分析出预测答案的分数
@@ -61,6 +67,8 @@ class RougeL(object):
         else:
             score = 0
         self.inst_scores.append(score)
+        self.r_scores.append(rec)
+        self.p_scores.append(prec)
 
     def get_score(self) -> float:
         """计算cand预测数据的RougeL分数
