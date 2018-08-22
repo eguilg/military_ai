@@ -9,6 +9,7 @@ import numpy as np
 from gensim.models import Word2Vec, KeyedVectors
 from utils.rouge import RougeL
 from utils.bleu import Bleu
+from utils.read_elmo_embedding import get_elmo_vocab
 from vocab import Vocab
 import multiprocessing
 
@@ -46,6 +47,7 @@ class MilitaryAiDataset(object):
   def __init__(self, train_preprocessed_files=[], train_raw_files=[],
                test_preprocessed_files=[], test_raw_files=[],
                char_embed_path="", token_embed_path="",
+               elmo_vocab_path="", elmo_embed_path="",
                char_min_cnt=1, token_min_cnt=3,
                dev_split=0.1, seed=502, use_char_emb=False):
     self.logger = logging.getLogger("Military AI")
@@ -59,6 +61,8 @@ class MilitaryAiDataset(object):
     self.test_preprocessed_path = test_preprocessed_files
     self.char_embed_path = char_embed_path
     self.token_embed_path = token_embed_path
+    self.elmo_vocab_path = elmo_vocab_path
+    self.elmo_embed_path = elmo_embed_path
     self.char_min_cnt = char_min_cnt
     self.token_min_cnt = token_min_cnt
     self.use_char_emb = use_char_emb
@@ -265,7 +269,7 @@ class MilitaryAiDataset(object):
               sample['answer'] = all_json[i]['questions'][j]['answer']
               sample['answer_token_start'] = all_json[i]['questions'][j]['answer_token_start']
               sample['answer_token_end'] = all_json[i]['questions'][j]['answer_token_end']
-            sample.pop('questions')
+            del sample['questions']
             dataset.append(sample)
           fo.write(json.dumps(all_json[i]) + '\n')
     return dataset
@@ -299,13 +303,13 @@ class MilitaryAiDataset(object):
 
         self.all_chars.append(list(''.join(row['article_tokens'])))
         for j in range(len(row['questions'])):
-          sample = row.copy()
+          sample = {
+            'article_id': row['article_id'],
+            'article_type': row['article_type'],
+          }
           sample['article_tokens'] = row['questions'][j]['sampled_article_tokens']
           sample['article_flags'] = row['questions'][j]['sampled_article_flags']
           sample['article_tokens_len'] = len(sample['article_tokens'])
-
-          # sample['article_chars'] = list(''.join(row['questions'][j]['sampled_article_tokens']))
-          # sample['article_chars_len'] = len(sample['article_chars'])
 
           sample['question_id'] = row['questions'][j]['questions_id']
           sample['question_tokens'] = row['questions'][j]['question_tokens']
@@ -329,7 +333,7 @@ class MilitaryAiDataset(object):
             sample['answer_tokens_len'] = len(sample['answer_tokens'])
             sample['answer_token_start'] = row['questions'][j]['answer_token_start']
             sample['answer_token_end'] = row['questions'][j]['answer_token_end']
-          sample.pop('questions')
+          # del sample['questions']
           dataset.append(sample)
 
     return dataset
@@ -355,10 +359,16 @@ class MilitaryAiDataset(object):
       self.logger.info("Saving token embedding model")
       self.token_wv.save(self.token_embed_path)
 
-  def _get_vocabs(self):
 
+    self.logger.info("Loading elmo embedding model")
+    self.elmo_dict, self.elmo_embed = get_elmo_vocab(self.elmo_vocab_path, self.elmo_embed_path)
+
+
+
+
+
+  def _get_vocabs(self):
     self.unique_flags = sorted(set(self.all_flags))
-    del self.all_flags
 
     def convert_to_one_hot(C):
       return np.eye(C)[np.linspace(0, C - 1, C - 1, dtype=np.int32).reshape(-1)].T
@@ -384,6 +394,8 @@ class MilitaryAiDataset(object):
 
     self.flag_vocab = Vocab(self.unique_flags, flags_embeddings)
 
+
+
     self.char_vocab = Vocab(self.char_wv.index2word, self.char_wv.vectors)
     self.char_vocab.count([y for x in self.all_chars for y in x])
     unfiltered_char_vocab_size = self.char_vocab.size()
@@ -399,9 +411,9 @@ class MilitaryAiDataset(object):
     filtered_num = unfiltered_token_vocab_size - self.token_vocab.size()
     self.logger.info('After filter {} tokens, the final token vocab size is {}'.format(filtered_num,
                                                                                        self.token_vocab.size()))
-
+    self.elmo_vocab = Vocab(list(self.elmo_dict.keys()), self.elmo_embed)
     del self.char_wv, self.token_wv
-    del self.all_chars, self.all_tokens
+    del self.all_chars, self.all_tokens, self.all_flags
 
   def _one_mini_batch(self, data, indices):
     """
@@ -415,11 +427,14 @@ class MilitaryAiDataset(object):
     """
     batch_data = {'raw_data': [data[i] for i in indices],
                   'question_token_ids': [],
-                  'question_flag_ids': [],
-                  'question_tokens_len': [],
                   'article_token_ids': [],
+                  'question_flag_ids': [],
                   'article_flag_ids': [],
+                  'question_elmo_ids': [],
+                  'article_elmo_ids': [],
+                  'question_tokens_len': [],
                   'article_tokens_len': [],
+
                   'question_char_ids': [],
                   'article_char_ids': [],
                   'start_id': [],
@@ -448,6 +463,9 @@ class MilitaryAiDataset(object):
       batch_data['question_flag_ids'].append(sample['question_flag_ids'])
       batch_data['article_flag_ids'].append(sample['article_flag_ids'])
 
+      batch_data['question_elmo_ids'].append(sample['question_elmo_ids'])
+      batch_data['article_elmo_ids'].append(sample['article_elmo_ids'])
+
       batch_data['qtype_vecs'].append(sample['qtype_vec'])
     batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
     batch_data['article_pad_len'] = pad_p_len
@@ -474,6 +492,7 @@ class MilitaryAiDataset(object):
 
     pad_id_t = self.token_vocab.get_id(self.token_vocab.pad_token)
     pad_id_f = self.flag_vocab.get_id(self.flag_vocab.pad_token)
+    pad_id_e = self.flag_vocab.get_id(self.elmo_vocab.pad_token)
     pad_id_c = self.char_vocab.get_id(self.char_vocab.pad_token)
     pad_p_len = min(self.p_max_tokens_len, max(batch_data['article_tokens_len']))
     pad_q_len = min(self.q_max_tokens_len, max(batch_data['question_tokens_len']))
@@ -487,6 +506,11 @@ class MilitaryAiDataset(object):
                                        for ids in batch_data['article_flag_ids']]
     batch_data['question_flag_ids'] = [(ids + [pad_id_f] * (pad_q_len - len(ids)))[: pad_q_len]
                                         for ids in batch_data['question_flag_ids']]
+
+    batch_data['article_elmo_ids'] = [(ids + [pad_id_e] * (pad_p_len - len(ids)))[: pad_p_len]
+                                      for ids in batch_data['article_elmo_ids']]
+    batch_data['question_elmo_ids'] = [(ids + [pad_id_e] * (pad_q_len - len(ids)))[: pad_q_len]
+                                       for ids in batch_data['question_elmo_ids']]
     pad_p_token_len = self.p_token_max_len
     pad_q_token_len = self.q_token_max_len
     if self.use_char_emb:
@@ -545,7 +569,7 @@ class MilitaryAiDataset(object):
     char2idx = self.char_vocab.token2id
     token2idx = self.token_vocab.token2id
     flag2idx = self.flag_vocab.token2id
-
+    elmo2idx = self.elmo_vocab.token2id
 
     for data_set in [self.train_set, self.test_set]:
       if data_set is None:
@@ -571,6 +595,11 @@ class MilitaryAiDataset(object):
                                        for flag in sample['question_flags']]
         sample['article_flag_ids'] = [flag2idx[flag] if flag in flag2idx.keys() else flag2idx['<unk>']
                                        for flag in sample['article_flags']]
+
+        sample['question_elmo_ids'] = [elmo2idx[token] if token in elmo2idx.keys() else elmo2idx['<unk>']
+                                       for token in sample['question_tokens']]
+        sample['article_elmo_ids'] = [elmo2idx[token] if token in elmo2idx.keys() else elmo2idx['<unk>']
+                                      for token in sample['article_tokens']]
 
   def gen_mini_batches(self, set_name, batch_size, shuffle=True):
     """

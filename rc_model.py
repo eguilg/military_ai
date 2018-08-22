@@ -42,7 +42,7 @@ class RCModel(object):
     Implements the main reading comprehension model.
     """
 
-    def __init__(self, char_vocab, token_vocab, flag_vocab, args, qtype_count=10):
+    def __init__(self, char_vocab, token_vocab, flag_vocab, elmo_vocab, args, qtype_count=10):
 
         # logging
         self.logger = logging.getLogger("Military AI")
@@ -53,7 +53,7 @@ class RCModel(object):
         self.hidden_size = args.hidden_size
         self.optim_type = args.optim
         self.learning_rate = args.learning_rate
-        self.lr_decay = 0.98
+        self.lr_decay = args.lr_decay
         self.weight_decay = args.weight_decay
         self.use_dropout = args.dropout_keep_prob < 1
         self.use_char_emb = args.use_char_emb
@@ -69,6 +69,7 @@ class RCModel(object):
         self.char_vocab = char_vocab
         self.token_vocab = token_vocab
         self.flag_vocab = flag_vocab
+        self.elmo_vocab = elmo_vocab
 
         # session info
         sess_config = tf.ConfigProto()
@@ -110,6 +111,8 @@ class RCModel(object):
         self.q_t = tf.placeholder(tf.int32, [None, None])
         self.p_f = tf.placeholder(tf.int32, [None, None])
         self.q_f = tf.placeholder(tf.int32, [None, None])
+        self.p_e = tf.placeholder(tf.int32, [None, None])
+        self.q_e = tf.placeholder(tf.int32, [None, None])
         self.p_c = tf.placeholder(tf.int32, [None, None, None])
         self.q_c = tf.placeholder(tf.int32, [None, None, None])
         self.p_t_length = tf.placeholder(tf.int32, [None])
@@ -144,19 +147,30 @@ class RCModel(object):
             self.p_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.p_t)
             self.q_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.q_t)
 
-            with tf.variable_scope('flag_embedding'):
-                with tf.device('/cpu:0'):
-                    self.flag_embeddings = tf.get_variable(
-                        'flag_embedding',
-                        shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
-                        initializer=tf.constant_initializer(self.flag_vocab.embeddings),
-                        trainable=False
-                    )
-                p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
-                q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
+        with tf.variable_scope('flag_embedding'):
+            with tf.device('/cpu:0'):
+                self.flag_embeddings = tf.get_variable(
+                    'flag_embedding',
+                    shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
+                    initializer=tf.constant_initializer(self.flag_vocab.embeddings),
+                    trainable=False
+                )
+            p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
+            q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
 
-            self.p_t_emb = tf.concat([self.p_t_emb, p_f_emb], axis=-1)
-            self.q_t_emb = tf.concat([self.q_t_emb, q_f_emb], axis=-1)
+        with tf.variable_scope('elmo_embedding'):
+            with tf.device('/cpu:0'):
+                self.elmo_embeddings = tf.get_variable(
+                    'elmo_embedding',
+                    shape=(self.elmo_vocab.size(), self.elmo_vocab.embed_dim),
+                    initializer=tf.constant_initializer(self.elmo_vocab.embeddings),
+                    trainable=False
+                )
+            p_e_emb = tf.nn.embedding_lookup(self.elmo_embeddings, self.p_e)
+            q_e_emb = tf.nn.embedding_lookup(self.elmo_embeddings, self.q_e)
+
+        self.p_t_emb = tf.concat([self.p_t_emb, p_f_emb, p_e_emb], axis=-1)
+        self.q_t_emb = tf.concat([self.q_t_emb, q_f_emb, q_e_emb], axis=-1)
             # if self.use_dropout:
             #     self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
             #     self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
@@ -323,22 +337,26 @@ class RCModel(object):
         """
         Selects the training algorithm and creates a train operation with it
         """
-        global_step = tf.contrib.framework.get_or_create_global_step()
-        self.decay_learning_rate = tf.train.exponential_decay(
-            self.learning_rate,
-            global_step,
-            300,
-            self.lr_decay
-        )
+        lr = self.learning_rate
+        if self.lr_decay<1:
+
+            global_step = tf.contrib.framework.get_or_create_global_step()
+            self.decay_learning_rate = tf.train.exponential_decay(
+                self.learning_rate,
+                global_step,
+                300,
+                self.lr_decay
+            )
+            lr = self.decay_learning_rate
 
         if self.optim_type == 'adagrad':
-            self.optimizer = tf.train.AdagradOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.AdagradOptimizer(lr)
         elif self.optim_type == 'adam':
-            self.optimizer = tf.train.AdamOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(lr)
         elif self.optim_type == 'rprop':
-            self.optimizer = tf.train.RMSPropOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.RMSPropOptimizer(lr)
         elif self.optim_type == 'sgd':
-            self.optimizer = tf.train.GradientDescentOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.GradientDescentOptimizer(lr)
         else:
             raise NotImplementedError('Unsupported optimizer: {}'.format(self.optim_type))
         self.train_op = self.optimizer.minimize(self.loss)
@@ -357,6 +375,8 @@ class RCModel(object):
                          self.q_t: batch['question_token_ids'],
                          self.p_f: batch['article_flag_ids'],
                          self.q_f: batch['question_flag_ids'],
+                         self.p_e: batch['article_elmo_ids'],
+                         self.q_e: batch['question_elmo_ids'],
                          self.p_pad_len: batch['article_pad_len'],
                          self.q_pad_len: batch['question_pad_len'],
                          self.p_t_length: batch['article_tokens_len'],
@@ -455,6 +475,8 @@ class RCModel(object):
                          self.q_t: batch['question_token_ids'],
                          self.p_f: batch['article_flag_ids'],
                          self.q_f: batch['question_flag_ids'],
+                         self.p_e: batch['article_elmo_ids'],
+                         self.q_e: batch['question_elmo_ids'],
                          self.p_pad_len: batch['article_pad_len'],
                          self.q_pad_len: batch['question_pad_len'],
                          self.p_t_length: batch['article_tokens_len'],

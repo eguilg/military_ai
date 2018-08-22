@@ -33,13 +33,16 @@ from dataset import MilitaryAiDataset
 from vocab import Vocab
 from rc_model import RCModel
 
-root = '/home/zydq/lgworkspace/DM/Others/military_ai/'
+root = './'
 train_raw = root + 'data/train/question.json'
 train_processed = root + 'data/train/question_preprocessed.json'
 # test_raw = ''
 # test_processed = ''
 char_embed = root + 'data/embedding/char_embed75.wv'
 token_embed = root + 'data/embedding/token_embed300.wv'
+
+elmo_dict = root + 'data/embedding/elmo-military_vocab.txt'
+elmo_embed = root + 'data/embedding/elmo-military_emb.pkl'
 
 
 def parse_args():
@@ -64,6 +67,8 @@ def parse_args():
                                 help='optimizer type')
     train_settings.add_argument('--learning_rate', type=float, default=0.001,
                                 help='learning rate')
+    train_settings.add_argument('--lr_decay', type=float, default=1.0,
+                                help='lr decay every 300 steps')
     train_settings.add_argument('--weight_decay', type=float, default=0,
                                 help='weight decay')
     train_settings.add_argument('--dropout_keep_prob', type=float, default=0.8,
@@ -117,6 +122,12 @@ def parse_args():
     path_settings.add_argument('--token_embed_file', nargs='+',
                                default=token_embed,
                                help='token embedding file')
+    path_settings.add_argument('--elmo_dict_file', nargs='+',
+                               default=elmo_dict,
+                               help='elmo_dict_file')
+    path_settings.add_argument('--elmo_embed_file', nargs='+',
+                               default=elmo_embed,
+                               help='elmo embedding file')
     path_settings.add_argument('--data_dir', default='./data/train',
                                help='the dir with preprocessed baidu reading comprehension data')
     path_settings.add_argument('--vocab_dir', default='./data/embedding/',
@@ -151,6 +162,7 @@ def prepare(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
+                                 args.elmo_dict_file, args.elmo_embed_file,
                                  char_min_cnt=1, token_min_cnt=3)
 
     logger.info('Assigning embeddings...')
@@ -171,6 +183,7 @@ def train(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
+                                 args.elmo_dict_file, args.elmo_embed_file,
                                  char_min_cnt=1, token_min_cnt=3)
 
     logger.info('Assigning embeddings...')
@@ -178,7 +191,8 @@ def train(args):
         mai_data.token_vocab.randomly_init_embeddings(args.embed_size)
         mai_data.char_vocab.randomly_init_embeddings(args.embed_size)
     logger.info('Initialize the model...')
-    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, mai_data.flag_vocab, args)
+    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab,
+                       mai_data.flag_vocab, mai_data.elmo_vocab, args)
     if args.is_restore:
         rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Training the model...')
@@ -197,6 +211,7 @@ def evaluate(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
+                                 args.elmo_dict_file, args.elmo_embed_file,
                                  char_min_cnt=1, token_min_cnt=3)
 
     logger.info('Assigning embeddings...')
@@ -204,7 +219,8 @@ def evaluate(args):
         mai_data.token_vocab.randomly_init_embeddings(args.embed_size)
         mai_data.char_vocab.randomly_init_embeddings(args.embed_size)
     logger.info('Restoring the model...')
-    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, mai_data.flag_vocab, args)
+    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab,
+                       mai_data.flag_vocab, mai_data.elmo_vocab, args)
     rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Evaluating the model on dev set...')
     dev_batches = mai_data.gen_mini_batches('dev', args.batch_size, shuffle=False)
@@ -224,13 +240,15 @@ def predict(args):
     mai_data = MilitaryAiDataset(args.train_files, args.train_raw_files,
                                  args.test_files, args.test_raw_files,
                                  args.char_embed_file, args.token_embed_file,
+                                 args.elmo_dict_file, args.elmo_embed_file,
                                  char_min_cnt=1, token_min_cnt=3)
     logger.info('Assigning embeddings...')
     if not args.use_embe:
         mai_data.token_vocab.randomly_init_embeddings(args.embed_size)
         mai_data.char_vocab.randomly_init_embeddings(args.embed_size)
     logger.info('Restoring the model...')
-    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab, mai_data.flag_vocab, args)
+    rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab,
+                       mai_data.flag_vocab, mai_data.elmo_vocab, args)
     rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo+args.suffix)
     logger.info('Predicting answers for test set...')
     test_batches = mai_data.gen_mini_batches('test', args.batch_size, shuffle=False)
