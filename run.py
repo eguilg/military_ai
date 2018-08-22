@@ -64,6 +64,8 @@ def parse_args():
                                 help='optimizer type')
     train_settings.add_argument('--learning_rate', type=float, default=0.001,
                                 help='learning rate')
+    train_settings.add_argument('--lr_decay', type=float, default=1.0,
+                                help='lr decay every 300 steps')
     train_settings.add_argument('--weight_decay', type=float, default=0,
                                 help='weight decay')
     train_settings.add_argument('--dropout_keep_prob', type=float, default=0.8,

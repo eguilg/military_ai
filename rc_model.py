@@ -53,7 +53,7 @@ class RCModel(object):
         self.hidden_size = args.hidden_size
         self.optim_type = args.optim
         self.learning_rate = args.learning_rate
-        self.lr_decay = 0.98
+        self.lr_decay = args.lr_decay
         self.weight_decay = args.weight_decay
         self.use_dropout = args.dropout_keep_prob < 1
         self.use_char_emb = args.use_char_emb
@@ -323,22 +323,25 @@ class RCModel(object):
         """
         Selects the training algorithm and creates a train operation with it
         """
-        global_step = tf.contrib.framework.get_or_create_global_step()
-        self.decay_learning_rate = tf.train.exponential_decay(
-            self.learning_rate,
-            global_step,
-            300,
-            self.lr_decay
-        )
+        lr = self.learning_rate
+        if self.lr_decay < 1:
+            global_step = tf.contrib.framework.get_or_create_global_step()
+            self.decay_learning_rate = tf.train.exponential_decay(
+                self.learning_rate,
+                global_step,
+                300,
+                self.lr_decay
+            )
+            lr = self.decay_learning_rate
 
         if self.optim_type == 'adagrad':
-            self.optimizer = tf.train.AdagradOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.AdagradOptimizer(lr)
         elif self.optim_type == 'adam':
-            self.optimizer = tf.train.AdamOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.AdamOptimizer(lr)
         elif self.optim_type == 'rprop':
-            self.optimizer = tf.train.RMSPropOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.RMSPropOptimizer(lr)
         elif self.optim_type == 'sgd':
-            self.optimizer = tf.train.GradientDescentOptimizer(self.decay_learning_rate)
+            self.optimizer = tf.train.GradientDescentOptimizer(lr)
         else:
             raise NotImplementedError('Unsupported optimizer: {}'.format(self.optim_type))
         self.train_op = self.optimizer.minimize(self.loss)
