@@ -338,8 +338,7 @@ class RCModel(object):
         Selects the training algorithm and creates a train operation with it
         """
         lr = self.learning_rate
-        if self.lr_decay<1:
-
+        if self.lr_decay < 1:
             global_step = tf.contrib.framework.get_or_create_global_step()
             self.decay_learning_rate = tf.train.exponential_decay(
                 self.learning_rate,
