@@ -129,7 +129,7 @@ class MilitaryAiDataset(object):
       cur_s.append(token)
       cur_s_f.append(flag)
 
-      if token in '\001。!！?？' or idx == len(article_tokens) - 1:
+      if token in '\001。' or idx == len(article_tokens) - 1:
         # if len(cur_s) >= 2:
         sentences.append(cur_s)
         sentences_f.append(cur_s_f)
@@ -204,7 +204,7 @@ class MilitaryAiDataset(object):
         dataset = []
         for i in tqdm(range(len(all_json))):
           all_json[i]['article_content'] = all_json[i]['article_title'] + '\001' + all_json[i]['article_content']
-          all_json[i]['article_content'] = re.sub('[\u3000]', '', all_json[i]['article_content'])
+          all_json[i]['article_content'] = re.sub('[\u3000\t]', '', all_json[i]['article_content'])
           #  using '\001' as paragraph separator
           all_json[i]['article_content'] = re.sub('[\r\n]', '\001', all_json[i]['article_content'])
           tokens = pseg.lcut(all_json[i]['article_content'], HMM=False)
