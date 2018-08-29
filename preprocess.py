@@ -1,16 +1,14 @@
 import os
 import re
-import copy
 import json
 import jieba
 import multiprocessing as mp
 from functools import partial
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 import jieba.posseg as pseg
 from utils.rouge import RougeL
-from utils.bleu import Bleu
+
 
 jieba_big_dict_path = './data/embedding/dict.txt.big'
 if os.path.isfile(jieba_big_dict_path):
@@ -28,6 +26,7 @@ def trans_to_df(raw_data_path):
         data = json.load(file)
         questions = []
         articles = []
+
         for dc in data:
             temp = [dc['article_id'], dc['article_type'], dc['article_title'], dc['article_content']]
             articles.append(temp)
@@ -304,12 +303,12 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
         if len(spans) == 0:
             return row
         else:
-            best_idx = np.argmax(rl.r_scores)
+            best_idx = np.argmax(rl.inst_scores)
             row['answer_token_start'] = spans[best_idx][0]
             row['answer_token_end'] = spans[best_idx][1]
         return row
 
-    def _find_golden_span1(row, article_tokens_col, question_tokens_col, answer_tokens_col):
+    def _find_golden_span_v2(row, article_tokens_col, question_tokens_col, answer_tokens_col):
 
         article_tokens = row[article_tokens_col]
         question_tokens = row[question_tokens_col]
@@ -334,8 +333,8 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
                 mlen = max(len(s1), len(s2))
                 iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
                 if iou > 0.3:
-                    s = max(i - 10, 0)
-                    cand_ctx = ''.join(article_tokens[s:i + t_len + 10]).strip()
+                    s = max(i - 5, 0)
+                    cand_ctx = ''.join(article_tokens[s:i + t_len + 5]).strip()
                     rl_ans.add_inst(cand_ans, ground_ans)
                     rl_q.add_inst(cand_ctx, questrin_str)
                     spans.append([i, i + t_len - 1])
@@ -343,7 +342,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
         if len(spans) == 0:
             return row
 
-        sim_ans = np.array(rl_ans.r_scores)
+        sim_ans = np.array(rl_ans.inst_scores)
         sim_q = np.array(rl_q.r_scores)
 
         total_score = 0.7 * sim_ans + 0.3 * sim_q
@@ -409,9 +408,14 @@ def preprocess_dataset(raw_path):
 
     sample_df = parallel_find_gold_span(sample_df)
 
+    adf = adf.to_dict(orient='records')
+    qadf = qadf.to_dict(orient='records')
+    sample_df = sample_df.to_dict(orient='records')
+
     return adf, qadf, sample_df
 
 
+"""
 if __name__ == '__main__':
 
     adf, qadf = trans_to_df('./data/train/question.json')
@@ -436,6 +440,5 @@ if __name__ == '__main__':
     sample_df = parallel_sample_article(adf, qadf)
 
     sample_df_with_span = parallel_find_gold_span(sample_df.iloc[:10])
-
-
+"""
 

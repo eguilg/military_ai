@@ -1,43 +1,12 @@
 import json
 import logging
-import jieba
-import copy
-import os
-from tqdm import tqdm
-import jieba.posseg as pseg
-import re
 import numpy as np
 from gensim.models import Word2Vec, KeyedVectors
-from utils.rouge import RougeL
-from utils.bleu import Bleu
 from utils.read_elmo_embedding import get_elmo_vocab
+from preprocess import preprocess_dataset
 from vocab import Vocab
+
 import multiprocessing
-
-
-def find_golden_span(article_tokens, answer_tokens):
-  rl = RougeL()
-  ground_ans = ''.join(answer_tokens).strip()
-  len_p = len(article_tokens)
-  len_a = len(answer_tokens)
-  s2 = set(ground_ans)
-  best_idx = [-1, -1]
-  best_score = 0
-  for i in range(len_p - len_a + 1):
-    for t_len in [len_a - 2, len_a - 1, len_a, len_a + 1, len_a + 2]:
-      if t_len == 0 or i + t_len > len_p:
-        continue
-      cand_ans = ''.join(article_tokens[i:i + t_len]).strip()
-      s1 = set(cand_ans)
-      mlen = max(len(s1), len(s2))
-      iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-      if iou > 0.3:
-        rl.add_inst(cand_ans, ground_ans)
-        score = rl.inst_scores[-1]
-        if score > best_score:
-          best_score = score
-          best_idx = [i, i + t_len - 1]
-  return best_idx
 
 
 class MilitaryAiDataset(object):
@@ -100,11 +69,11 @@ class MilitaryAiDataset(object):
     for i, train_file in enumerate(self.train_preprocessed_path):
       try:
         self.logger.info('Loading preprocessed train files...')
-        trainSet = self._load_from_preprocessed(self.train_preprocessed_path[i], train=True)
+        trainSet = self._load_from_preprocessed(self.train_preprocessed_path[i])
       except FileNotFoundError:
         self.logger.info('Loading train files from raw...')
         trainSet = self._preprocess_raw(self.train_raw_path[i],
-                                        self.train_preprocessed_path[i], train=True)
+                                        self.train_preprocessed_path[i])
       self.train_set += trainSet
     for i, test_file in enumerate(self.test_preprocessed_path):
       try:
@@ -115,81 +84,7 @@ class MilitaryAiDataset(object):
         testSet = self._preprocess_raw(self.test_raw_path[i], self.test_preprocessed_path[i])
       self.test_set += testSet
 
-  def _sample_article(self, article_tokens, article_flags, question_tokens, max_token_num=400):
-    """
-    Sample the article to tokens len less than max_token_num
-    :param article_tokens:
-    :param question_tokens:
-    :param max_token_num:
-    :return:
-    """
-    if len(article_tokens) <= max_token_num:
-      return article_tokens, article_flags
-    sentences, sentences_f = [], []
-    cur_s, cur_s_f = [], []
-    question = ''.join(question_tokens)
-
-    cand, cand_f = [], []
-    for idx, (token, flag) in enumerate(zip(article_tokens, article_flags)):
-      cur_s.append(token)
-      cur_s_f.append(flag)
-
-      if token in '\001。' or idx == len(article_tokens) - 1:
-        if len(cur_s) >= 2:
-          sentences.append(cur_s)
-          sentences_f.append(cur_s_f)
-        cur_s, cur_s_f = [], []
-        continue
-
-    rl = RougeL()
-    for s in sentences:
-      rl.add_inst(''.join(s), question)
-    scores = rl.r_scores
-    s_rank = np.zeros(len(sentences))
-    arg_sorted = list(reversed(np.argsort(scores)))
-
-    for i in range(15):
-      if i >= len(sentences):
-        break
-      pos = arg_sorted[i]
-      if pos in [0, 1, len(sentences) - 1]:
-        continue
-      score = scores[pos]
-      nb_score = score
-      fnb_score = 0.5 * score
-      ffnb_score = 0.25 * score
-      block_scores = np.array([fnb_score, nb_score, score, nb_score, fnb_score, ffnb_score])
-      block = s_rank[pos-2: pos+4]
-      block_scores = block_scores[:len(block)]
-      block_scores = np.max(np.stack([block_scores, block]), axis=0)
-      s_rank[pos - 2: pos + 4] = block_scores
-
-    cand.extend(sentences[0])
-    cand_f.extend(sentences_f[0])
-    cand.extend(sentences[1])
-    cand_f.extend(sentences_f[1])
-    cand.extend(sentences[-1])
-    cand_f.extend(sentences_f[-1])
-
-    rank = list(reversed(np.argsort(s_rank)))
-
-    for pos in rank:
-      if pos in [0, 1, len(sentences)-1]:
-        continue
-      if s_rank[pos] > 0:
-        cand.extend(sentences[pos])
-        cand_f.extend(sentences_f[pos])
-        if len(cand) > max_token_num:
-          break
-      else:
-        break
-
-    cand = cand[:max_token_num]
-    cand_f = cand_f[:max_token_num]
-
-    return cand, cand_f
-
-  def _preprocess_raw(self, data_path, preprocessed_path, train=False):
+  def _preprocess_raw(self, data_path, preprocessed_path):
     """
     Preprocess the raw data if preprocessed file doesn't exist
     :param data_path: the raw data path
@@ -200,79 +95,32 @@ class MilitaryAiDataset(object):
     """
     from feature_handler.question_handler import QuestionTypeHandler
     ques_type_handler = QuestionTypeHandler()
-    # jieba.enable_parallel(multiprocessing.cpu_count())
-    if os.path.isfile('./data/embedding/dict.txt.big'):
-      jieba.set_dictionary('./data/embedding/dict.txt.big')
-    with open(data_path, 'r') as fp:
-      with open(preprocessed_path, 'w') as fo:
-        all_json: list = json.load(fp)
-        dataset = []
-        for i in tqdm(range(len(all_json))):
-          all_json[i]['article_content'] = all_json[i]['article_title'] + '\001' + all_json[i]['article_content']
-          all_json[i]['article_content'] = re.sub('[\u3000\t]', '', all_json[i]['article_content'])
-          #  using '\001' as paragraph separator
-          all_json[i]['article_content'] = re.sub('[\r\n]', '\001', all_json[i]['article_content'])
-          tokens = pseg.lcut(all_json[i]['article_content'], HMM=False)
-          all_json[i]['article_tokens'] = [token.word for token in tokens]
-          article_flags = [token.flag for token in tokens]
 
-          self.all_tokens.append(all_json[i]['article_tokens'])
-          self.all_flags.extend(article_flags)
-          self.all_chars.append(list(''.join(all_json[i]['article_tokens'])))
-          del all_json[i]['article_content']
-          for j in range(len(all_json[i]['questions'])):
+    articles, qas, dataset = preprocess_dataset(data_path)
+    for article in articles:
+        self.all_tokens.append(article['article_tokens'])
+        self.all_chars.append(''.join(article['article_tokens']))
+        self.all_flags.extend(article['article_flags'])
+    for qa in qas:
+        self.all_tokens.append(qa['question_tokens'])
+        self.all_chars.append(''.join(qa['question_flags']))
+        self.all_flags.extend(qa['question_flags'])
+    for sample in dataset:
+        question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
+        sample['qtype'] = question_types
+        sample['qtype_vec'] = type_vec.tolist()
+        sample['article_tokens_len'] = len(sample['article_tokens'])
+        sample['question_tokens_len'] = len(sample['question_tokens'])
 
-            all_json[i]['questions'][j]['question'] = re.sub('[\n\t\r\u3000]', '',
-                                                             all_json[i]['questions'][j]['question'])
-            tokens = pseg.lcut(all_json[i]['questions'][j]['question'], HMM=False)
-            all_json[i]['questions'][j]['question_tokens'] = [token.word for token in tokens]
-            all_json[i]['questions'][j]['question_flags'] = [token.flag for token in tokens]
+    data_to_save = {
+        'articles': articles,
+        'questions': qas,
+        'samples': dataset
+    }
 
-            all_json[i]['questions'][j].pop('question')
-            all_json[i]['questions'][j]['sampled_article_tokens'], \
-            all_json[i]['questions'][j]['sampled_article_flags'] = self._sample_article(
-              all_json[i]['article_tokens'], article_flags,
-              all_json[i]['questions'][j]['question_tokens'])
+    with open(preprocessed_path, 'w') as fo:
+        json.dump(data_to_save, fo)
 
-            sample = copy.deepcopy(all_json[i])
-            sample['article_tokens'] = all_json[i]['questions'][j]['sampled_article_tokens']
-            sample['article_flags'] = all_json[i]['questions'][j]['sampled_article_flags']
-            sample['article_tokens_len'] = len(sample['article_tokens'])
-
-            sample['question_id'] = all_json[i]['questions'][j]['questions_id']
-            sample['question_tokens'] = all_json[i]['questions'][j]['question_tokens']
-            sample['question_flags'] = all_json[i]['questions'][j]['question_flags']
-            sample['question_tokens_len'] = len(sample['question_tokens'])
-
-            self.all_tokens.append(sample['question_tokens'])
-            self.all_flags.extend(sample['question_flags'])
-            self.all_chars.append(list(''.join(sample['question_tokens'])))
-
-            sample['qtype_vec'] = [0.0] * 10
-            if train:
-              question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
-              sample['question_types'] = question_types
-              sample['qtype_vec'] = type_vec.tolist()
-              all_json[i]['questions'][j]['answer'] = re.sub('[\n\t\r\u3000]', '',
-                                                             all_json[i]['questions'][j]['answer'])
-              tokens = pseg.lcut(all_json[i]['questions'][j]['answer'], HMM=False)
-              all_json[i]['questions'][j]['answer_tokens'] = [token.word for token in tokens]
-              all_json[i]['questions'][j]['answer_flags'] = [token.flag for token in tokens]
-              sample['answer_tokens'] = all_json[i]['questions'][j]['answer_tokens']
-              sample['answer_flags'] = all_json[i]['questions'][j]['answer_flags']
-              sample['answer_tokens_len'] = len(sample['answer_tokens'])
-
-              answer_tokens = sample['answer_tokens']
-              article_tokens = sample['article_tokens']
-              span = find_golden_span(article_tokens, answer_tokens)
-              all_json[i]['questions'][j]['answer_token_start'] = span[0]
-              all_json[i]['questions'][j]['answer_token_end'] = span[1]
-              sample['answer'] = all_json[i]['questions'][j]['answer']
-              sample['answer_token_start'] = all_json[i]['questions'][j]['answer_token_start']
-              sample['answer_token_end'] = all_json[i]['questions'][j]['answer_token_end']
-            del sample['questions']
-            dataset.append(sample)
-          fo.write(json.dumps(all_json[i]) + '\n')
     return dataset
 
   def _gen_hand_features(self, batch_data):
@@ -285,7 +133,7 @@ class MilitaryAiDataset(object):
       batch_data['wiqB'].append(wiqB)
     return batch_data
 
-  def _load_from_preprocessed(self, data_path, train=False):
+  def _load_from_preprocessed(self, data_path):
     """
     Load preprocessed data if exists
     :param data_path: preprocessed data path
@@ -296,49 +144,23 @@ class MilitaryAiDataset(object):
     ques_type_handler = QuestionTypeHandler()
 
     with open(data_path, 'r') as fp:
-      dataset = []
-      for lidx, line in enumerate(fp):
-        row = json.loads(line.strip())
-
-        self.all_tokens.append(row['article_tokens'])
-
-        self.all_chars.append(list(''.join(row['article_tokens'])))
-        for j in range(len(row['questions'])):
-          sample = {
-            'article_id': row['article_id'],
-            'article_type': row['article_type'],
-          }
-          sample['article_tokens'] = row['questions'][j]['sampled_article_tokens']
-          sample['article_flags'] = row['questions'][j]['sampled_article_flags']
+      total = json.load(fp)
+      for article in total['articles']:
+          self.all_tokens.append(article['article_tokens'])
+          self.all_chars.append(''.join(article['article_tokens']))
+          self.all_flags.extend(article['article_flags'])
+      for qa in total['questions']:
+          self.all_tokens.append(qa['question_tokens'])
+          self.all_chars.append(''.join(qa['question_flags']))
+          self.all_flags.extend(qa['question_flags'])
+      for sample in total['samples']:
+          question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
+          sample['qtype'] = question_types
+          sample['qtype_vec'] = type_vec.tolist()
           sample['article_tokens_len'] = len(sample['article_tokens'])
-
-          sample['question_id'] = row['questions'][j]['questions_id']
-          sample['question_tokens'] = row['questions'][j]['question_tokens']
-          sample['question_flags'] = row['questions'][j]['question_flags']
           sample['question_tokens_len'] = len(sample['question_tokens'])
-          # sample['question_chars'] = list(''.join(row['questions'][j]['question_tokens']))
-          # sample['question_chars_len'] = len(sample['question_chars'])
 
-          self.all_tokens.append(sample['question_tokens'])
-          self.all_flags.extend(sample['article_flags']+sample['question_flags'])
-          self.all_chars.append(list(''.join(sample['question_tokens'])))
-          sample['qtype_vec'] = [0.0]*ques_type_handler.type_count
-          if train:
-            question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
-            sample['question_types'] = question_types
-            sample['qtype_vec'] = type_vec.tolist()
-
-            sample['answer'] = row['questions'][j]['answer']
-            sample['answer_tokens'] = row['questions'][j]['answer_tokens']
-            sample['answer_flags'] = row['questions'][j]['answer_flags']
-            sample['answer_tokens_len'] = len(sample['answer_tokens'])
-            sample['answer_token_start'] = row['questions'][j]['answer_token_start']
-            sample['answer_token_end'] = row['questions'][j]['answer_token_end']
-          # del sample['questions']
-          dataset.append(sample)
-        del row
-
-    return dataset
+    return total['samples']
 
   def _load_embeddings(self):
 
@@ -364,10 +186,6 @@ class MilitaryAiDataset(object):
 
     self.logger.info("Loading elmo embedding model")
     self.elmo_dict, self.elmo_embed = get_elmo_vocab(self.elmo_vocab_path, self.elmo_embed_path)
-
-
-
-
 
   def _get_vocabs(self):
     self.unique_flags = sorted(set(self.all_flags))
@@ -395,8 +213,6 @@ class MilitaryAiDataset(object):
         np.ones(self.char_wv.vector_size, dtype=np.float32) * 0.05, ], self.char_wv.vectors], axis=0)
 
     self.flag_vocab = Vocab(self.unique_flags, flags_embeddings)
-
-
 
     self.char_vocab = Vocab(self.char_wv.index2word, self.char_wv.vectors)
     self.char_vocab.count([y for x in self.all_chars for y in x])
