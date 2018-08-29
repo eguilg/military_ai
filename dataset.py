@@ -1,6 +1,7 @@
 import json
 import logging
 import jieba
+import copy
 import os
 from tqdm import tqdm
 import jieba.posseg as pseg
@@ -23,14 +24,14 @@ def find_golden_span(article_tokens, answer_tokens):
   best_idx = [-1, -1]
   best_score = 0
   for i in range(len_p - len_a + 1):
-    for t_len in [len_a - 1, len_a, len_a + 1]:
+    for t_len in [len_a - 2, len_a - 1, len_a, len_a + 1, len_a + 2]:
       if t_len == 0 or i + t_len > len_p:
         continue
       cand_ans = ''.join(article_tokens[i:i + t_len]).strip()
       s1 = set(cand_ans)
       mlen = max(len(s1), len(s2))
       iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-      if iou > 0.4:
+      if iou > 0.3:
         rl.add_inst(cand_ans, ground_ans)
         score = rl.inst_scores[-1]
         if score > best_score:
@@ -114,7 +115,7 @@ class MilitaryAiDataset(object):
         testSet = self._preprocess_raw(self.test_raw_path[i], self.test_preprocessed_path[i])
       self.test_set += testSet
 
-  def _sample_article(self, article_tokens, article_flags, question_tokens, max_token_num=500):
+  def _sample_article(self, article_tokens, article_flags, question_tokens, max_token_num=400):
     """
     Sample the article to tokens len less than max_token_num
     :param article_tokens:
@@ -134,9 +135,9 @@ class MilitaryAiDataset(object):
       cur_s_f.append(flag)
 
       if token in '\001。' or idx == len(article_tokens) - 1:
-        # if len(cur_s) >= 2:
-        sentences.append(cur_s)
-        sentences_f.append(cur_s_f)
+        if len(cur_s) >= 2:
+          sentences.append(cur_s)
+          sentences_f.append(cur_s_f)
         cur_s, cur_s_f = [], []
         continue
 
@@ -218,7 +219,7 @@ class MilitaryAiDataset(object):
           self.all_tokens.append(all_json[i]['article_tokens'])
           self.all_flags.extend(article_flags)
           self.all_chars.append(list(''.join(all_json[i]['article_tokens'])))
-          all_json[i].pop('article_content')
+          del all_json[i]['article_content']
           for j in range(len(all_json[i]['questions'])):
 
             all_json[i]['questions'][j]['question'] = re.sub('[\n\t\r\u3000]', '',
@@ -233,7 +234,7 @@ class MilitaryAiDataset(object):
               all_json[i]['article_tokens'], article_flags,
               all_json[i]['questions'][j]['question_tokens'])
 
-            sample = all_json[i].copy()
+            sample = copy.deepcopy(all_json[i])
             sample['article_tokens'] = all_json[i]['questions'][j]['sampled_article_tokens']
             sample['article_flags'] = all_json[i]['questions'][j]['sampled_article_flags']
             sample['article_tokens_len'] = len(sample['article_tokens'])
@@ -335,6 +336,7 @@ class MilitaryAiDataset(object):
             sample['answer_token_end'] = row['questions'][j]['answer_token_end']
           # del sample['questions']
           dataset.append(sample)
+        del row
 
     return dataset
 
@@ -412,8 +414,9 @@ class MilitaryAiDataset(object):
     self.logger.info('After filter {} tokens, the final token vocab size is {}'.format(filtered_num,
                                                                                        self.token_vocab.size()))
     self.elmo_vocab = Vocab(list(self.elmo_dict.keys()), self.elmo_embed)
+    del self.elmo_dict, self.elmo_embed
     del self.char_wv, self.token_wv
-    del self.all_chars, self.all_tokens, self.all_flags
+    del self.all_chars, self.all_tokens, self.all_flags, self.unique_flags
 
   def _one_mini_batch(self, data, indices):
     """
@@ -634,4 +637,6 @@ if __name__ == '__main__':
   data = MilitaryAiDataset(['./data/train/question_preprocessed.json'],
                            ['./data/train/question.json'],
                            char_embed_path='./data/embedding/char_embed75.wv',
-                           token_embed_path='./data/embedding/token_embed300.wv')
+                           token_embed_path='./data/embedding/token_embed300.wv',
+                           elmo_vocab_path="./data/embedding/elmo-military_vocab.txt",
+                           elmo_embed_path="./data/embedding/elmo-military_emb.pkl",)

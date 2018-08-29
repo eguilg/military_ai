@@ -153,7 +153,7 @@ class RCModel(object):
                     'flag_embedding',
                     shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
                     initializer=tf.constant_initializer(self.flag_vocab.embeddings),
-                    trainable=False
+                    trainable=True
                 )
             p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
             q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
@@ -271,9 +271,6 @@ class RCModel(object):
             if self.use_dropout:
                 self.fuse_p_encodes = tf.nn.dropout(self.fuse_p_encodes, self.dropout_keep_prob)
 
-
-
-
     def _decode(self):
         """
         Employs Pointer Network to get the the probs of each position
@@ -293,8 +290,12 @@ class RCModel(object):
         #     )
         with tf.variable_scope('decode'):
             decoder = PointerNetDecoder(self.hidden_size)
-            self.start_probs, self.end_probs = decoder.decode(self.fuse_p_encodes,
-                                                              self.sep_q_encodes)
+            self.start_probs, self.end_probs = decoder.decode(self.fuse_p_encodes, self.sep_q_encodes)
+            outer = tf.matmul(tf.expand_dims(tf.nn.softmax(self.start_probs), axis=2),
+                              tf.expand_dims(tf.nn.softmax(self.end_probs), axis=1))
+            outer = tf.matrix_band_part(outer, 0, -1)
+            self.pred_starts = tf.argmax(tf.reduce_max(outer, axis=2), axis=-1)
+            self.pred_ends = tf.argmax(tf.reduce_max(outer, axis=1), axis=-1)
 
     def _compute_loss(self):
         """
@@ -338,8 +339,9 @@ class RCModel(object):
         Selects the training algorithm and creates a train operation with it
         """
         lr = self.learning_rate
+        global_step = tf.train.get_or_create_global_step()
         if self.lr_decay < 1:
-            global_step = tf.contrib.framework.get_or_create_global_step()
+
             self.decay_learning_rate = tf.train.exponential_decay(
                 self.learning_rate,
                 global_step,
@@ -353,14 +355,17 @@ class RCModel(object):
         elif self.optim_type == 'adam':
             self.optimizer = tf.train.AdamOptimizer(lr)
         elif self.optim_type == 'rprop':
-            self.optimizer = tf.train.RMSPropOptimizer(lr)
+            self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate, self.lr_decay)
+        elif self.optim_type == 'adadelta':
+            self.optimizer = tf.train.AdadeltaOptimizer(self.learning_rate, self.lr_decay)
         elif self.optim_type == 'sgd':
             self.optimizer = tf.train.GradientDescentOptimizer(lr)
         else:
             raise NotImplementedError('Unsupported optimizer: {}'.format(self.optim_type))
-        self.train_op = self.optimizer.minimize(self.loss)
+        self.train_op = self.optimizer.minimize(self.loss ,global_step=global_step)
 
-    def _train_epoch(self, train_batches, dropout_keep_prob):
+    def _train_epoch(self, train_batches, dropout_keep_prob,
+                     data, max_rouge_l, n_ep, save_dir, save_prefix):
         """
         Trains the model for a single epoch.
         Args:
@@ -368,7 +373,7 @@ class RCModel(object):
             dropout_keep_prob: float value indicating dropout keep probability
         """
         total_num, total_loss, total_main_loss = 0, 0, 0
-        log_every_n_batch, n_batch_loss, n_batch_main_loss = 50, 0, 0
+        log_every_n_batch, eval_every_n_batch, n_batch_loss, n_batch_main_loss = 50, 1000, 0, 0
         for bitx, batch in enumerate(train_batches, 1):
             feed_dict = {self.p_t: batch['article_token_ids'],
                          self.q_t: batch['question_token_ids'],
@@ -415,7 +420,22 @@ class RCModel(object):
                     n_batch_main_loss / log_every_n_batch))
                 n_batch_loss = 0
                 n_batch_main_loss = 0
-        return 1.0 * total_loss / total_num, 1.0 * total_main_loss / total_num
+            if eval_every_n_batch > 0 and bitx > 0 and bitx % eval_every_n_batch == 0:
+                self.logger.info('Evaluating the model after batch {}'.format(bitx))
+                if data.dev_set is not None:
+                    eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
+                    eval_loss, eval_main_loss, bleu_rouge = self.evaluate(eval_batches)
+                    self.logger.info('Dev eval loss {}'.format(eval_loss))
+                    self.logger.info('Dev eval main loss {}'.format(eval_main_loss))
+                    self.logger.info('Dev eval result: {}'.format(bleu_rouge))
+
+                    if bleu_rouge['Rouge-L'] > max_rouge_l:
+                        self.save(save_dir, save_prefix)
+                        max_rouge_l = bleu_rouge['Rouge-L']
+                else:
+                    self.logger.warning('No dev set is loaded for evaluation in the dataset!')
+
+        return 1.0 * total_loss / total_num, 1.0 * total_main_loss / total_num, max_rouge_l
 
     def train(self, data, epochs, batch_size, save_dir, save_prefix,
               dropout_keep_prob=1.0, evaluate=True):
@@ -435,7 +455,9 @@ class RCModel(object):
         for epoch in tqdm(range(1, epochs + 1)):
             self.logger.info('Training the model for epoch {}'.format(epoch))
             train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
-            train_loss, train_main_loss = self._train_epoch(train_batches, dropout_keep_prob)
+            train_loss, train_main_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob, data,
+                                                                         max_rouge_l, epoch,
+                                                                         save_dir, save_prefix)
             self.logger.info('Average train loss for epoch {} is Total Loss: {}, Main Loss: {}'.format(epoch, train_loss, train_main_loss))
 
             if evaluate:
@@ -497,16 +519,16 @@ class RCModel(object):
                      self.p_CL: batch['article_CL'],
                      self.q_CL: batch['question_CL']
                      })
-            start_probs, end_probs, loss, main_loss = self.sess.run([self.start_probs,
-                                                                     self.end_probs, self.loss, self.main_loss],
-                                                                    feed_dict)
+            pred_starts, pred_ends, loss, main_loss = self.sess.run([self.pred_starts,
+                                                                     self.pred_ends, self.loss, self.main_loss],
+                                                                     feed_dict)
             batch_size = len(batch['raw_data'])
             total_loss += loss * batch_size
             total_main_loss += main_loss * batch_size
             total_num += batch_size
 
-            for sample, start_prob, end_prob in zip(batch['raw_data'], start_probs, end_probs):
-                best_answer = self.find_best_answer(sample, start_prob, end_prob)
+            for sample, best_start, best_end in zip(batch['raw_data'], pred_starts, pred_ends):
+                best_answer = ''.join(sample['article_tokens'][best_start: best_end + 1])
                 if sample['article_id'] not in ariticle_map:
 
                     ariticle_map[sample['article_id']] = len(ariticle_map)

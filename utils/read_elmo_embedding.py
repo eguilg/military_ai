@@ -15,9 +15,9 @@ def pickle_load(file_path):
   return data
 
 
-data_folder = '../data/embedding'
-vocab_path = os.path.join(data_folder, 'elmo-military_vocab.txt')
-embedding_path = os.path.join(data_folder, 'elmo-military_emb.pkl')
+# data_folder = '../data/embedding'
+# vocab_path = os.path.join(data_folder, 'elmo-military_vocab.txt')
+# embedding_path = os.path.join(data_folder, 'elmo-military_emb.pkl')
 
 
 def get_elmo_vocab(vocab_path, embedding_path):
@@ -36,7 +36,7 @@ def get_elmo_vocab(vocab_path, embedding_path):
   return word_to_id, embeddings
 
 
-word_to_id, embeddings = get_elmo_vocab(vocab_path, embedding_path)
+# word_to_id, embeddings = get_elmo_vocab(vocab_path, embedding_path)
 # pad_id = word_to_id['<pad>']
 # assert pad_id == 0
 # unk_id = word_to_id['<unk>']

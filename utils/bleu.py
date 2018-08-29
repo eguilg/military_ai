@@ -61,7 +61,8 @@ class Bleu(object):
             bleu_score {float} -- bleu分数
         """
         prob_list = [
-            self.match_ngram[n_size + 1] / float(self.candi_ngram[n_size + 1])
+            self.match_ngram[n_size + 1] / float(self.candi_ngram[n_size + 1]) if self.candi_ngram[
+                                                                                      n_size + 1] != 0 else 0.0
             for n_size in range(self.n_size)
         ]
         bleu_score = prob_list[0]

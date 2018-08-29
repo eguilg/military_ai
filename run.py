@@ -63,11 +63,11 @@ def parse_args():
     parser.add_argument('--use_embe', type=int, default=1, help='is use embeddings vector file')
 
     train_settings = parser.add_argument_group('train settings')
-    train_settings.add_argument('--optim', default='adam',
+    train_settings.add_argument('--optim', default='adadelta',
                                 help='optimizer type')
-    train_settings.add_argument('--learning_rate', type=float, default=0.0005,
+    train_settings.add_argument('--learning_rate', type=float, default=0.5,
                                 help='learning rate')
-    train_settings.add_argument('--lr_decay', type=float, default=1.0,
+    train_settings.add_argument('--lr_decay', type=float, default=0.95,
                                 help='lr decay every 300 steps')
     train_settings.add_argument('--weight_decay', type=float, default=0,
                                 help='weight decay')
@@ -85,7 +85,7 @@ def parse_args():
                                 help='choose the algorithm to use')
     model_settings.add_argument('--embed_size', type=int, default=300,
                                 help='size of the embeddings')
-    model_settings.add_argument('--hidden_size', type=int, default=150,
+    model_settings.add_argument('--hidden_size', type=int, default=100,
                                 help='size of LSTM hidden units')
     model_settings.add_argument('--use_char_emb', type=int, default=0,
                                 help='if using char embeddings')
@@ -149,7 +149,7 @@ def prepare(args):
     """
     logger = logging.getLogger("Military AI")
     logger.info('Checking the data files...')
-    for data_path in args.train_files:
+    for data_path in args.train_raw_files:
         assert os.path.exists(data_path), '{} file does not exist.'.format(data_path)
     logger.info('Preparing the directories...')
     for dir_path in [args.vocab_dir, args.model_dir, args.result_dir, args.summary_dir]:
