@@ -22,7 +22,7 @@ class MilitaryAiDataset(object):
 				 char_min_cnt=1, token_min_cnt=3,
 				 dev_split=0.1, seed=502, use_char_emb=False):
 		self.logger = logging.getLogger("Military AI")
-
+		self.logger.setLevel(logging.INFO)
 		self.train_set, self.test_set = [], []
 
 		self.train_raw_path = train_raw_files

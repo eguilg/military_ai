@@ -8,13 +8,13 @@ import jieba
 import jieba.posseg as pseg
 import numpy as np
 import pandas as pd
-
+import logging
 from utils.rouge import RougeL
 
 jieba_big_dict_path = './data/embedding/dict.txt.big'
 if os.path.isfile(jieba_big_dict_path):
 	jieba.set_dictionary(jieba_big_dict_path)
-
+jieba.setLogLevel(logging.INFO)
 
 def trans_to_df(raw_data_path):
 	"""
