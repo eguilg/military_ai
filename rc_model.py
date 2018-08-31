@@ -43,7 +43,6 @@ class RCModel(object):
 		self.use_dropout = args.dropout_keep_prob < 1
 		self.use_char_emb = args.use_char_emb
 		self.qtype_count = qtype_count
-		self.is_train = True
 		# length limit
 		# self.max_p_num = args.max_p_num
 		# self.max_p_len = args.max_p_len
@@ -81,6 +80,7 @@ class RCModel(object):
 		self._encode()
 		self._match()
 		self._hand_feature()
+		self._self_att()
 		self._fuse()
 		self._decode()
 		self._compute_loss()
@@ -229,6 +229,10 @@ class RCModel(object):
 				raise NotImplementedError('The algorithm {} is not implemented.'.format(self.algo))
 			self.match_p_encodes, _ = match_layer.match(self.sep_p_encodes, self.sep_q_encodes,
 														self.p_t_length, self.q_t_length)
+
+			self.match_p_encodes, _ = rnn('bi-lstm', self.match_p_encodes, self.p_t_length,
+										  self.hidden_size, layer_num=1)
+
 			if self.use_dropout:
 				self.match_p_encodes = tf.nn.dropout(self.match_p_encodes, self.dropout_keep_prob)
 
@@ -241,22 +245,30 @@ class RCModel(object):
 			self.wiqB = tf.reshape(self.wiqB, [batch_size, self.p_pad_len, 1])
 			self.match_p_encodes = tf.concat([self.match_p_encodes, self.wiqB], axis=-1)
 
+	def _self_att(self):
+		"""
+		Self attention layer
+		"""
+		with tf.variable_scope('self_att'):
+			if self.algo == 'MLSTM':
+				self_att_layer = MatchLSTMLayer(self.hidden_size)
+			elif self.algo == 'BIDAF':
+				self_att_layer = AttentionFlowMatchLayer(self.hidden_size)
+			else:
+				raise NotImplementedError('The algorithm {} is not implemented.'.format(self.algo))
+			self.self_att_p_encodes, _ = self_att_layer.match(self.match_p_encodes, self.match_p_encodes,
+															  self.p_t_length, self.p_t_length)
+			if self.use_dropout:
+				self.self_att_p_encodes = tf.nn.dropout(self.self_att_p_encodes, self.dropout_keep_prob)
+
 	def _fuse(self):
 		"""
 		Employs Bi-LSTM again to fuse the context information after match layer
 		"""
 		with tf.variable_scope('fusion'):
-			self.fuse_p_encodes, _ = rnn('bi-lstm', self.match_p_encodes, self.p_t_length,
+			self.fuse_p_encodes, _ = rnn('bi-lstm', self.self_att_p_encodes, self.p_t_length,
 										 self.hidden_size, layer_num=1)
-			# if self.algo == 'MLSTM':
-			#     match_layer = MatchLSTMLayer(self.hidden_size)
-			# elif self.algo == 'BIDAF':
-			#     match_layer = AttentionFlowMatchLayer(self.hidden_size)
-			# else:
-			#     raise NotImplementedError('The algorithm {} is not implemented.'.format(self.algo))
-			#
-			# self.fuse_p_encodes, _ = match_layer.match(self.match_p_encodes, self.match_p_encodes,
-			#                                            self.p_t_length, self.p_t_length)
+
 			if self.use_dropout:
 				self.fuse_p_encodes = tf.nn.dropout(self.fuse_p_encodes, self.dropout_keep_prob)
 
@@ -267,22 +279,13 @@ class RCModel(object):
 		Note that we concat the fuse_p_encodes for the passages in the same document.
 		And since the encodes of queries in the same document is same, we select the first one.
 		"""
-		# with tf.variable_scope('same_question_concat'):
-		#     batch_size = tf.shape(self.start_label)[0]
-		#     concat_passage_encodes = tf.reshape(
-		#         self.fuse_p_encodes,
-		#         [batch_size, -1, 2 * self.hidden_size]
-		#     )
-		#     question_encodes = tf.reshape(
-		#         self.sep_q_encodes,
-		#         [batch_size, -1, tf.shape(self.sep_q_encodes)[1], 2 * self.hidden_size]
-		#     )
+
 		with tf.variable_scope('decode'):
 			decoder = PointerNetDecoder(self.hidden_size)
 			self.start_probs, self.end_probs = decoder.decode(self.fuse_p_encodes, self.sep_q_encodes)
-			outer = tf.matmul(tf.expand_dims(tf.nn.softmax(self.start_probs), axis=2),
-							  tf.expand_dims(tf.nn.softmax(self.end_probs), axis=1))
-			outer = tf.matrix_band_part(outer, 0, -1)
+			self.out_matrix = tf.matmul(tf.expand_dims(tf.nn.softmax(self.start_probs), axis=2),
+										tf.expand_dims(tf.nn.softmax(self.end_probs), axis=1))
+			outer = tf.matrix_band_part(self.out_matrix, 0, -1)
 			self.pred_starts = tf.argmax(tf.reduce_max(outer, axis=2), axis=-1)
 			self.pred_ends = tf.argmax(tf.reduce_max(outer, axis=1), axis=-1)
 
@@ -300,24 +303,40 @@ class RCModel(object):
 				losses = - tf.reduce_sum(labels * tf.log(probs + epsilon), 1)
 			return losses
 
-		self.start_loss = sparse_nll_loss(probs=self.start_probs, labels=self.start_label)
-		self.end_loss = sparse_nll_loss(probs=self.end_probs, labels=self.end_label)
-		self.all_params = tf.trainable_variables()
-		self.main_loss = tf.reduce_mean(tf.add(self.start_loss, self.end_loss))
-		if self.is_train:
-			with tf.variable_scope("qtype-clf"):
-				last_output = self.sep_q_encodes[:, -1, :]
-				softmax_w = tf.get_variable("softmax_w",
-											[last_output.get_shape().as_list()[-1], self.qtype_count],
-											dtype=tf.float32)
-				softmax_b = tf.get_variable("softmax_b", [self.qtype_count], dtype=tf.float32)
-				type_logits = tf.matmul(last_output, softmax_w) + softmax_b
+		with tf.variable_scope("pointer_loss"):
+			self.start_loss = sparse_nll_loss(probs=self.start_probs, labels=self.start_label)
+			self.end_loss = sparse_nll_loss(probs=self.end_probs, labels=self.end_label)
+			self.all_params = tf.trainable_variables()
+			self.pointer_loss = tf.reduce_mean(tf.add(self.start_loss, self.end_loss))
 
-				self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-					labels=self.qtype_vec, logits=type_logits))
-			self.loss = tf.add(self.main_loss, 0.2 * self.type_loss)
-		else:
-			self.loss = self.main_loss
+		with tf.variable_scope("type_loss"):
+			last_output = self.sep_q_encodes[:, -1, :]
+			softmax_w = tf.get_variable("softmax_w",
+										[last_output.get_shape().as_list()[-1], self.qtype_count],
+										dtype=tf.float32)
+			softmax_b = tf.get_variable("softmax_b", [self.qtype_count], dtype=tf.float32)
+			type_logits = tf.matmul(last_output, softmax_w) + softmax_b
+
+			self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+				labels=self.qtype_vec, logits=type_logits))
+
+		# with tf.variable_scope("mrl"):
+		# 	batch_size = tf.shape(self.start_label)[0]
+		# 	k = tf.reshape(tf.range(0, batch_size) * self.p_pad_len, [batch_size, 1])
+		# 	start_label = self.start_label + k
+		#
+		# 	indices = tf.concat(start_label, self.end_label)
+		# 	gt_out_matrix = tf.SparseTensor(indices,
+		# 									tf.ones([batch_size]),
+		# 									[batch_size * self.p_pad_len, self.p_pad_len])
+		#
+		# 	gt_out_matrix = 1.0 - tf.sparse_reshape(gt_out_matrix, [batch_size, self.p_pad_len, self.p_pad_len])
+		# 	gt_out_matrix = tf.sparse_to_dense(gt_out_matrix)
+		#
+		# 	self.mrl = tf.reduce_sum(gt_out_matrix * self.out_matrix)
+
+		self.loss = self.pointer_loss + 0.2 * self.type_loss# + 0.6 * self.mrl
+
 		if self.weight_decay > 0:
 			with tf.variable_scope('l2_loss'):
 				l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])
@@ -395,7 +414,7 @@ class RCModel(object):
 			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
-			_, loss, main_loss = self.sess.run([self.train_op, self.loss, self.main_loss], feed_dict)
+			_, loss, main_loss = self.sess.run([self.train_op, self.loss, self.pointer_loss], feed_dict)
 			batch_size = len(batch['raw_data'])
 			total_loss += loss * batch_size
 			total_main_loss += main_loss * batch_size
@@ -438,7 +457,6 @@ class RCModel(object):
 			dropout_keep_prob: float value indicating dropout keep probability
 			evaluate: whether to evaluate the model on test set after each epoch
 		"""
-		self.is_train = True
 		max_rouge_l = 0
 		for epoch in tqdm(range(1, epochs + 1)):
 			self.logger.info('Training the model for epoch {}'.format(epoch))
@@ -510,7 +528,7 @@ class RCModel(object):
 					 self.q_CL: batch['question_CL']
 					 })
 			pred_starts, pred_ends, loss, main_loss = self.sess.run([self.pred_starts,
-																	 self.pred_ends, self.loss, self.main_loss],
+																	 self.pred_ends, self.loss, self.pointer_loss],
 																	feed_dict)
 			batch_size = len(batch['raw_data'])
 			total_loss += loss * batch_size
