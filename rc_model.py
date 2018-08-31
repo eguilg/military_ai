@@ -420,7 +420,7 @@ class RCModel(object):
 			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
-			_, mrl, pointer_loss, type_loss, test = self.sess.run(
+			_, mrl, pointer_loss, type_loss = self.sess.run(
 				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
 			# self.logger.info('tttt:{}'.format(test))
 			batch_size = len(batch['raw_data'])
