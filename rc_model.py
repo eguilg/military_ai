@@ -421,7 +421,7 @@ class RCModel(object):
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
 			_, mrl, pointer_loss, type_loss, test = self.sess.run(
-				[self.train_op, self.mrl, self.pointer_loss, self.type_loss, self.test1], feed_dict)
+				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
 			# self.logger.info('tttt:{}'.format(test))
 			batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
