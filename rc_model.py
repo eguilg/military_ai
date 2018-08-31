@@ -320,23 +320,26 @@ class RCModel(object):
 			self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
 				labels=self.qtype_vec, logits=type_logits))
 
-		# with tf.variable_scope("mrl"):
-		# 	batch_size = tf.shape(self.start_label)[0]
-		# 	k = tf.reshape(tf.range(0, batch_size) * self.p_pad_len, [batch_size, 1])
-		# 	start_label = self.start_label + k
-		#
-		# 	indices = tf.concat(start_label, self.end_label)
-		# 	gt_out_matrix = tf.SparseTensor(indices,
-		# 									tf.ones([batch_size]),
-		# 									[batch_size * self.p_pad_len, self.p_pad_len])
-		#
-		# 	gt_out_matrix = 1.0 - tf.sparse_reshape(gt_out_matrix, [batch_size, self.p_pad_len, self.p_pad_len])
-		# 	gt_out_matrix = tf.sparse_to_dense(gt_out_matrix)
-		#
-		# 	self.mrl = tf.reduce_sum(gt_out_matrix * self.out_matrix)
+		with tf.variable_scope("mrl"):
+			batch_size = tf.shape(self.start_label)[0]
 
-		self.loss = self.pointer_loss + 0.2 * self.type_loss# + 0.6 * self.mrl
+			label = tf.reshape(self.start_label * self.p_pad_len + self.end_label, [batch_size, 1])
+			batch_idx = tf.reshape(tf.range(0, batch_size), [batch_size, 1])
+			indices = tf.to_int64(tf.concat([batch_idx, label], axis=-1))
+			gt_out_matrix = tf.sparse_to_dense(indices,
+											   tf.to_int64([batch_size, self.p_pad_len**2]),
+											   1.0, 0.0)
+			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len**2])
+			p_pad_len = tf.to_float(self.p_pad_len)
+			w_p = (p_pad_len**2 - 1) / (p_pad_len**2)
+			w_n = 1.0 / (p_pad_len**2)
+			self.mrl = - (w_p * gt_out_matrix * tf.log(self.out_matrix + 1e-9) + w_n * (1 - gt_out_matrix) * tf.log(
+				1 - self.out_matrix + 1e-9))
 
+			self.mrl = tf.reduce_mean(tf.reduce_sum(self.mrl, axis=-1))
+
+		# self.loss = 0.2 * self.pointer_loss + 0.2 * self.type_loss + self.mrl
+		self.loss = self.mrl
 		if self.weight_decay > 0:
 			with tf.variable_scope('l2_loss'):
 				l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])
@@ -379,8 +382,8 @@ class RCModel(object):
 			train_batches: iterable batch data for training
 			dropout_keep_prob: float value indicating dropout keep probability
 		"""
-		total_num, total_loss, total_main_loss = 0, 0, 0
-		log_every_n_batch, eval_every_n_batch, n_batch_loss, n_batch_main_loss = 50, 1000, 0, 0
+		total_num, total_mrl, total_pointer_loss = 0, 0, 0
+		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss = 50, 1000, 0, 0
 		for bitx, batch in enumerate(train_batches, 1):
 			feed_dict = {self.p_t: batch['article_token_ids'],
 						 self.q_t: batch['question_token_ids'],
@@ -414,26 +417,27 @@ class RCModel(object):
 			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
-			_, loss, main_loss = self.sess.run([self.train_op, self.loss, self.pointer_loss], feed_dict)
+			_, mrl, pointer_loss, type_loss = self.sess.run(
+				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
 			batch_size = len(batch['raw_data'])
-			total_loss += loss * batch_size
-			total_main_loss += main_loss * batch_size
+			total_mrl += mrl * batch_size
+			total_pointer_loss += pointer_loss * batch_size
 			total_num += batch_size
-			n_batch_loss += loss
-			n_batch_main_loss += main_loss
+			n_batch_mrl += mrl
+			n_batch_pointer_loss += pointer_loss
 			if log_every_n_batch > 0 and bitx % log_every_n_batch == 0:
-				self.logger.info('Average loss from batch {} to {} is Total Loss: {}, Main Loss: {}'.format(
-					bitx - log_every_n_batch + 1, bitx, n_batch_loss / log_every_n_batch,
-					n_batch_main_loss / log_every_n_batch))
-				n_batch_loss = 0
-				n_batch_main_loss = 0
+				self.logger.info('Average loss from batch {} to {} is MRL Loss: {}, Pointer Loss: {}'.format(
+					bitx - log_every_n_batch + 1, bitx, n_batch_mrl / log_every_n_batch,
+					n_batch_pointer_loss / log_every_n_batch))
+				n_batch_mrl = 0
+				n_batch_pointer_loss = 0
 			if eval_every_n_batch > 0 and bitx > 0 and bitx % eval_every_n_batch == 0:
 				self.logger.info('Evaluating the model after batch {}'.format(bitx))
 				if data.dev_set is not None:
 					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-					eval_loss, eval_main_loss, bleu_rouge = self.evaluate(eval_batches)
-					self.logger.info('Dev eval loss {}'.format(eval_loss))
-					self.logger.info('Dev eval main loss {}'.format(eval_main_loss))
+					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
+					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
+					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
@@ -442,7 +446,7 @@ class RCModel(object):
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 
-		return 1.0 * total_loss / total_num, 1.0 * total_main_loss / total_num, max_rouge_l
+		return 1.0 * total_mrl / total_num, 1.0 * total_pointer_loss / total_num, max_rouge_l
 
 	def train(self, data, epochs, batch_size, save_dir, save_prefix,
 			  dropout_keep_prob=1.0, evaluate=True):
@@ -461,20 +465,20 @@ class RCModel(object):
 		for epoch in tqdm(range(1, epochs + 1)):
 			self.logger.info('Training the model for epoch {}'.format(epoch))
 			train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
-			train_loss, train_main_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob, data,
-																		 max_rouge_l, epoch,
-																		 save_dir, save_prefix)
+			train_mrl, train_pointer_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob, data,
+																		   max_rouge_l, epoch,
+																		   save_dir, save_prefix)
 			self.logger.info(
-				'Average train loss for epoch {} is Total Loss: {}, Main Loss: {}'.format(epoch, train_loss,
-																						  train_main_loss))
+				'Average train loss for epoch {} is MRL Loss: {}, Pointer Loss: {}'.format(epoch, train_mrl,
+																						   train_pointer_loss))
 
 			if evaluate:
 				self.logger.info('Evaluating the model after epoch {}'.format(epoch))
 				if data.dev_set is not None:
 					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-					eval_loss, eval_main_loss, bleu_rouge = self.evaluate(eval_batches)
-					self.logger.info('Dev eval loss {}'.format(eval_loss))
-					self.logger.info('Dev eval main loss {}'.format(eval_main_loss))
+					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
+					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
+					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
@@ -496,7 +500,7 @@ class RCModel(object):
 			save_full_info: if True, the pred_answers will be added to raw sample and saved
 		"""
 		pred_answers, ref_answers = [], []
-		total_loss, total_main_loss, total_num = 0, 0, 0
+		total_mrl, total_pointer_loss, total_num = 0, 0, 0
 		rl, bleu = RougeL(), Bleu()
 		ariticle_map = {}
 		for b_itx, batch in enumerate(eval_batches):
@@ -527,12 +531,12 @@ class RCModel(object):
 					 self.p_CL: batch['article_CL'],
 					 self.q_CL: batch['question_CL']
 					 })
-			pred_starts, pred_ends, loss, main_loss = self.sess.run([self.pred_starts,
-																	 self.pred_ends, self.loss, self.pointer_loss],
-																	feed_dict)
+			pred_starts, pred_ends, mrl, pointer_loss = self.sess.run([self.pred_starts,
+																	   self.pred_ends, self.mrl, self.pointer_loss],
+																	  feed_dict)
 			batch_size = len(batch['raw_data'])
-			total_loss += loss * batch_size
-			total_main_loss += main_loss * batch_size
+			total_mrl += mrl * batch_size
+			total_pointer_loss += pointer_loss * batch_size
 			total_num += batch_size
 
 			for sample, best_start, best_end in zip(batch['raw_data'], pred_starts, pred_ends):
@@ -575,10 +579,10 @@ class RCModel(object):
 			self.logger.info('Saving {} results to {}'.format(result_prefix, result_file))
 
 		# this average loss is invalid on test set, since we don't have true start_id and end_id
-		ave_loss = 1.0 * total_loss / total_num
-		ave_main_loss = 1.0 * total_main_loss / total_num
+		ave_mrl = 1.0 * total_mrl / total_num
+		ave_pointer_loss = 1.0 * total_pointer_loss / total_num
 
-		return ave_loss, ave_main_loss, bleu_rouge
+		return ave_mrl, ave_pointer_loss, bleu_rouge
 
 	def find_best_answer(self, sample, start_probs, end_probs, passage_len=None):
 		"""
