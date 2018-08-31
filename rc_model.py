@@ -324,22 +324,25 @@ class RCModel(object):
 			batch_size = tf.shape(self.start_label)[0]
 
 			label = tf.reshape(self.start_label * self.p_pad_len + self.end_label, [batch_size, 1])
+
 			batch_idx = tf.reshape(tf.range(0, batch_size), [batch_size, 1])
 			indices = tf.to_int64(tf.concat([batch_idx, label], axis=-1))
 			gt_out_matrix = tf.sparse_to_dense(indices,
-											   tf.to_int64([batch_size, self.p_pad_len**2]),
+											   tf.to_int64([batch_size, self.p_pad_len ** 2]),
 											   1.0, 0.0)
-			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len**2])
+			# self.test = gt_out_matrix[0, self.start_label[0] * self.p_pad_len + self.end_label[0]]
+			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
+			# self.test1 = self.out_matrix[0, self.start_label[0] * self.p_pad_len + self.end_label[0]]
 			p_pad_len = tf.to_float(self.p_pad_len)
-			w_p = (p_pad_len**2 - 1) / (p_pad_len**2)
-			w_n = 1.0 / (p_pad_len**2)
+			w_p = (p_pad_len ** 2 - 1) / (p_pad_len ** 2)
+			w_n = 1.0 / (p_pad_len ** 2)
 			self.mrl = - (w_p * gt_out_matrix * tf.log(self.out_matrix + 1e-9) + w_n * (1 - gt_out_matrix) * tf.log(
 				1 - self.out_matrix + 1e-9))
 
 			self.mrl = tf.reduce_mean(tf.reduce_sum(self.mrl, axis=-1))
 
-		# self.loss = 0.2 * self.pointer_loss + 0.2 * self.type_loss + self.mrl
-		self.loss = self.mrl
+		self.loss = 0.2 * self.pointer_loss + 0.2 * self.type_loss + self.mrl
+		self.loss = self.pointer_loss
 		if self.weight_decay > 0:
 			with tf.variable_scope('l2_loss'):
 				l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])
@@ -417,9 +420,10 @@ class RCModel(object):
 			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
-			_, mrl, pointer_loss, type_loss = self.sess.run(
-				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
-			batch_size = len(batch['raw_data'])
+			_, mrl, pointer_loss, type_loss, test = self.sess.run(
+				[self.train_op, self.mrl, self.pointer_loss, self.type_loss, self.test1], feed_dict)
+			self.logger.info('tttt:{}'.format(test))
+			# batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size
 			total_num += batch_size
