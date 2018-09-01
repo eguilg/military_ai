@@ -330,9 +330,7 @@ class RCModel(object):
 			gt_out_matrix = tf.sparse_to_dense(indices,
 											   tf.to_int64([batch_size, self.p_pad_len ** 2]),
 											   1.0, 0.0)
-			# self.test = gt_out_matrix[0, self.start_label[0] * self.p_pad_len + self.end_label[0]]
 			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
-			# self.test1 = self.out_matrix[0, self.start_label[0] * self.p_pad_len + self.end_label[0]]
 			p_pad_len = tf.to_float(self.p_pad_len)
 			w_p = (p_pad_len ** 2 - 1) / (p_pad_len ** 2)
 			w_n = 1.0 / (p_pad_len ** 2)
@@ -422,7 +420,6 @@ class RCModel(object):
 			# print(batch['question_char_ids'])
 			_, mrl, pointer_loss, type_loss = self.sess.run(
 				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
-			# self.logger.info('tttt:{}'.format(test))
 			batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size
