@@ -267,8 +267,16 @@ class MilitaryAiDataset(object):
 					  'question_c_len': [],
 					  'article_c_len': [],
 
+					  #delta stuff
+					  'delta_token_starts': [],
+					  'delta_token_ends': [],
+					  'delta_rouges': [],
+					  'delta_span_idxs': [],
+
 					  # hand features
 					  'wiqB': [],
+
+
 
 					  'article_pad_len': 0,
 					  'question_pad_len': 0,
@@ -291,6 +299,13 @@ class MilitaryAiDataset(object):
 			batch_data['article_elmo_ids'].append(sample['article_elmo_ids'])
 
 			batch_data['qtype_vecs'].append(sample['qtype_vec'])
+
+			# delta stuff
+			batch_data['delta_token_starts'].extend(sample['delta_token_starts'])
+			batch_data['delta_token_ends'].extend(sample['delta_token_ends'])
+			batch_data['delta_rouges'].extend(sample['delta_rouges'])
+			batch_data['delta_span_idxs'].extend([sidx]*len(sample['delta_rouges']))
+
 		batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
 		batch_data['article_pad_len'] = pad_p_len
 		batch_data['question_pad_len'] = pad_q_len

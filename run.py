@@ -53,6 +53,9 @@ def parse_args():
 								help='lr decay every 300 steps')
 	train_settings.add_argument('--weight_decay', type=float, default=0,
 								help='weight decay')
+	train_settings.add_argument('--loss_type', type=str, default='pointer',
+								choices=['pointer', 'mrl'],
+								help='loss type')
 	train_settings.add_argument('--dropout_keep_prob', type=float, default=0.8,
 								help='dropout keep rate')
 	train_settings.add_argument('--batch_size', type=int, default=32,

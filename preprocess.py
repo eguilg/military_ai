@@ -278,16 +278,20 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 	def _find_golden_span(row, article_tokens_col, question_tokens_col, answer_tokens_col):
 
 		article_tokens = row[article_tokens_col]
-		question_tokens = row[question_tokens_col]
+		# question_tokens = row[question_tokens_col]
 		answer_tokens = row[answer_tokens_col]
 		row['answer_token_start'] = -1
 		row['answer_token_end'] = -1
+		row['delta_token_starts'] = []
+		row['delta_token_ends'] = []
+		row['delta_rouges'] = []
 		rl = RougeL()
 		ground_ans = ''.join(answer_tokens).strip()
 		len_p = len(article_tokens)
 		len_a = len(answer_tokens)
 		s2 = set(ground_ans)
-		spans = []
+		star_spans = []
+		end_spans = []
 		for i in range(len_p - len_a + 1):
 			for t_len in range(len_a - 2, len_a + 3):
 				if t_len == 0 or i + t_len > len_p:
@@ -298,13 +302,18 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 				iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
 				if iou > 0.3:
 					rl.add_inst(cand_ans, ground_ans)
-					spans.append([i, i + t_len - 1])
-		if len(spans) == 0:
+					star_spans.append(i)
+					end_spans.append(i + t_len - 1)
+		if len(star_spans) == 0:
 			return row
 		else:
 			best_idx = np.argmax(rl.inst_scores)
-			row['answer_token_start'] = spans[best_idx][0]
-			row['answer_token_end'] = spans[best_idx][1]
+			row['answer_token_start'] = star_spans[best_idx]
+			row['answer_token_end'] = end_spans[best_idx]
+			row['delta_token_starts'] = star_spans
+			row['delta_token_ends'] = end_spans
+			row['delta_rouges'] = rl.inst_scores
+
 		return row
 
 	def _find_golden_span_v2(row, article_tokens_col, question_tokens_col, answer_tokens_col):

@@ -39,6 +39,7 @@ class RCModel(object):
 		self.optim_type = args.optim
 		self.learning_rate = args.learning_rate
 		self.lr_decay = args.lr_decay
+		self.loss_type =  args.loss_type
 		self.weight_decay = args.weight_decay
 		self.use_dropout = args.dropout_keep_prob < 1
 		self.use_char_emb = args.use_char_emb
@@ -107,6 +108,12 @@ class RCModel(object):
 		self.q_c_length = tf.placeholder(tf.int32, [None])
 		self.start_label = tf.placeholder(tf.int32, [None])
 		self.end_label = tf.placeholder(tf.int32, [None])
+		# delta stuff
+		self.delta_starts = tf.placeholder(tf.int32, [None])
+		self.delta_ends = tf.placeholder(tf.int32, [None])
+		self.delta_span_idxs = tf.placeholder(tf.int32, [None])
+		self.delta_rouges = tf.placeholder(tf.float32, [None])
+
 		self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
 		self.qtype_vec = tf.placeholder(tf.float32, [None, self.qtype_count])
 		# self.wiqW = tf.placeholder(tf.float32, [None, None, 1])
@@ -323,24 +330,22 @@ class RCModel(object):
 		with tf.variable_scope("mrl"):
 			batch_size = tf.shape(self.start_label)[0]
 
-			label = tf.reshape(self.start_label * self.p_pad_len + self.end_label, [batch_size, 1])
+			n_delta = tf.shape(self.delta_rouges)[0]
+			delta_pos = tf.reshape(self.delta_starts * self.p_pad_len + self.delta_ends, [n_delta, 1])
+			batch_idx = tf.reshape(self.delta_span_idxs, [n_delta, 1])
+			indices = tf.to_int64(tf.concat([batch_idx, delta_pos], axis=-1))
+			delta_metrix = 1.0 - tf.sparse_to_dense(indices,
+													tf.to_int64([batch_size, self.p_pad_len ** 2]),
+													self.delta_rouges, 0.0)
 
-			batch_idx = tf.reshape(tf.range(0, batch_size), [batch_size, 1])
-			indices = tf.to_int64(tf.concat([batch_idx, label], axis=-1))
-			gt_out_matrix = tf.sparse_to_dense(indices,
-											   tf.to_int64([batch_size, self.p_pad_len ** 2]),
-											   1.0, 0.0)
 			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
-			p_pad_len = tf.to_float(self.p_pad_len)
-			w_p = (p_pad_len ** 2 - 1) / (p_pad_len ** 2)
-			w_n = 1.0 / (p_pad_len ** 2)
-			self.mrl = - (w_p * gt_out_matrix * tf.log(self.out_matrix + 1e-9) + w_n * (1 - gt_out_matrix) * tf.log(
-				1 - self.out_matrix + 1e-9))
 
-			self.mrl = tf.reduce_mean(tf.reduce_sum(self.mrl, axis=-1))
+			self.mrl = tf.reduce_mean(tf.reduce_sum(delta_metrix * self.out_matrix, axis=-1))
 
-		self.loss = 0.2 * self.pointer_loss + 0.2 * self.type_loss + self.mrl
-		self.loss = self.pointer_loss
+		if self.loss_type == 'pointer':
+			self.loss = self.pointer_loss + 0.1 * self.type_loss
+		if self.loss_type == 'mrl':
+			self.loss = self.mrl
 		if self.weight_decay > 0:
 			with tf.variable_scope('l2_loss'):
 				l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])
@@ -401,6 +406,11 @@ class RCModel(object):
 						 self.end_label: batch['end_id'],
 						 self.wiqB: batch['wiqB'],
 						 self.qtype_vec: batch['qtype_vecs'],
+						 # delta stuff
+						 self.delta_starts: batch['delta_token_starts'],
+						 self.delta_ends: batch['delta_token_ends'],
+						 self.delta_span_idxs: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_span_idxs'],
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
@@ -520,6 +530,12 @@ class RCModel(object):
 						 self.end_label: batch['end_id'],
 						 self.wiqB: batch['wiqB'],
 						 self.qtype_vec: batch['qtype_vecs'],
+
+						 # delta stuff
+						 self.delta_starts: batch['delta_token_starts'],
+						 self.delta_ends: batch['delta_token_ends'],
+						 self.delta_span_idxs: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_span_idxs'],
 
 						 self.dropout_keep_prob: 1.0}
 
