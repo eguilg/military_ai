@@ -39,7 +39,7 @@ class RCModel(object):
 		self.optim_type = args.optim
 		self.learning_rate = args.learning_rate
 		self.lr_decay = args.lr_decay
-		self.loss_type =  args.loss_type
+		self.loss_type = args.loss_type
 		self.weight_decay = args.weight_decay
 		self.use_dropout = args.dropout_keep_prob < 1
 		self.use_char_emb = args.use_char_emb
@@ -329,23 +329,43 @@ class RCModel(object):
 
 		with tf.variable_scope("mrl"):
 			batch_size = tf.shape(self.start_label)[0]
+			out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
+			# hard
+			delta_hard_pos = self.start_label * self.p_pad_len + self.end_label
+			batch_idx_hard = tf.range(0, batch_size)
+			indices_hard = tf.to_int64(tf.stack([batch_idx_hard, delta_hard_pos], axis=1))
+			delta_hard = 1.0 - tf.sparse_to_dense(indices_hard,
+												  tf.to_int64([batch_size, self.p_pad_len ** 2]),
+												  1.0, 0.0)
 
-			n_delta = tf.shape(self.delta_rouges)[0]
-			delta_pos = tf.reshape(self.delta_starts * self.p_pad_len + self.delta_ends, [n_delta, 1])
-			batch_idx = tf.reshape(self.delta_span_idxs, [n_delta, 1])
-			indices = tf.to_int64(tf.concat([batch_idx, delta_pos], axis=-1))
-			delta_metrix = 1.0 - tf.sparse_to_dense(indices,
-													tf.to_int64([batch_size, self.p_pad_len ** 2]),
-													self.delta_rouges, 0.0)
+			# soft
+			delta_soft_pos = self.delta_starts * self.p_pad_len + self.delta_ends
+			indices_soft = tf.to_int64(tf.stack([self.delta_span_idxs, delta_soft_pos], axis=1))
+			delta_soft = 1.0 - tf.sparse_to_dense(indices_soft,
+												  tf.to_int64([batch_size, self.p_pad_len ** 2]),
+												  self.delta_rouges, 0.0)
 
-			self.out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
+			# mix
+			delta_mix = tf.reduce_min(tf.stack([delta_hard, delta_soft], axis=2), axis=-1)
 
-			self.mrl = tf.reduce_mean(tf.reduce_sum(delta_metrix * self.out_matrix, axis=-1))
+			self.mrl_hard = tf.reduce_mean(tf.reduce_sum(delta_hard * out_matrix, axis=-1))
+			self.mrl_soft = tf.reduce_mean(tf.reduce_sum(delta_soft * out_matrix, axis=-1))
+			self.mrl_mix = tf.reduce_mean(tf.reduce_sum(delta_mix * out_matrix, axis=-1))
 
 		if self.loss_type == 'pointer':
 			self.loss = self.pointer_loss + 0.1 * self.type_loss
-		if self.loss_type == 'mrl':
+		elif self.loss_type == 'mrl_mix':
+			self.mrl = self.mrl_mix
 			self.loss = self.mrl
+		elif self.loss_type == 'mrl_soft':
+			self.mrl = self.mrl_soft
+			self.loss = self.mrl
+		elif self.loss_type == 'mrl_hard':
+			self.mrl = self.mrl_hard
+			self.loss = self.mrl
+		else:
+			assert 0 != 0
+
 		if self.weight_decay > 0:
 			with tf.variable_scope('l2_loss'):
 				l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.all_params])

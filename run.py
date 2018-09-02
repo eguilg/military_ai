@@ -54,7 +54,7 @@ def parse_args():
 	train_settings.add_argument('--weight_decay', type=float, default=0,
 								help='weight decay')
 	train_settings.add_argument('--loss_type', type=str, default='pointer',
-								choices=['pointer', 'mrl'],
+								choices=['pointer', 'mrl_mix', 'mrl_soft', 'mrl_hard'],
 								help='loss type')
 	train_settings.add_argument('--dropout_keep_prob', type=float, default=0.8,
 								help='dropout keep rate')
@@ -70,7 +70,7 @@ def parse_args():
 								help='choose the algorithm to use')
 	model_settings.add_argument('--embed_size', type=int, default=300,
 								help='size of the embeddings')
-	model_settings.add_argument('--hidden_size', type=int, default=100,
+	model_settings.add_argument('--hidden_size', type=int, default=200,
 								help='size of LSTM hidden units')
 	model_settings.add_argument('--use_char_emb', type=int, default=0,
 								help='if using char embeddings')
@@ -83,6 +83,8 @@ def parse_args():
 	# model_settings.add_argument('--max_a_len', type=int, default=200,
 	#                             help='max length of answer')
 	model_settings.add_argument('--is_restore', type=int, default=0, help='is restore model from file')
+	model_settings.add_argument('--restore_suffix', type=str, default=None,
+								help='restore model from file')
 
 	path_settings = parser.add_argument_group('path settings')
 	path_settings.add_argument('--train_raw_files', nargs='+',
@@ -177,8 +179,11 @@ def train(args):
 	logger.info('Initialize the model...')
 	rc_model = RCModel(mai_data.char_vocab, mai_data.token_vocab,
 					   mai_data.flag_vocab, mai_data.elmo_vocab, args)
-	if args.is_restore:
-		rc_model.restore(model_dir=args.model_dir, model_prefix=args.algo + args.suffix)
+	if args.is_restore or args.restore_suffix:
+		restore_prefix = args.algo + args.suffix
+		if args.restore_suffix:
+			restore_prefix = args.algo + args.restore_suffix
+		rc_model.restore(model_dir=args.model_dir, model_prefix=restore_prefix)
 	logger.info('Training the model...')
 	rc_model.train(mai_data, args.epochs, args.batch_size, save_dir=args.model_dir,
 				   save_prefix=args.algo + args.suffix,
