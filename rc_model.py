@@ -353,6 +353,7 @@ class RCModel(object):
 			self.mrl_mix = tf.reduce_mean(tf.reduce_sum(delta_mix * out_matrix, axis=-1))
 
 		if self.loss_type == 'pointer':
+			self.mrl = self.mrl_hard
 			self.loss = self.pointer_loss + 0.1 * self.type_loss
 		elif self.loss_type == 'mrl_mix':
 			self.mrl = self.mrl_mix
