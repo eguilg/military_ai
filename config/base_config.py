@@ -10,6 +10,9 @@ class ConfigBase:
 	seed = 502
 	qtype_count = 10
 
+	ans_max_token_len = 200
+	ans_len_inter_size = 5
+
 	# learning
 	optim = 'adadelta'
 	learning_rate = 0.5

@@ -46,6 +46,10 @@ class RCModel(object):
 		self.use_char_emb = cfg.use_char_emb
 		self.qtype_count = cfg.qtype_count
 
+		self.ans_max_token_len = cfg.ans_max_token_len
+		self.ans_len_inter_size = cfg.ans_len_inter_size
+		self.ans_inter_num = (self.ans_max_token_len - self.ans_len_inter_size) // self.ans_len_inter_size + 1
+
 		# the vocab
 		self.char_vocab = char_vocab
 		self.token_vocab = token_vocab
@@ -79,6 +83,7 @@ class RCModel(object):
 		self._hand_feature()
 		self._self_att()
 		self._fuse()
+		self._pred_ans_inter()
 		self._decode()
 		self._compute_loss()
 		self._create_train_op()
@@ -110,6 +115,7 @@ class RCModel(object):
 		self.delta_span_idxs = tf.placeholder(tf.int32, [None])
 		self.delta_rouges = tf.placeholder(tf.float32, [None])
 
+		self.ans_inter = tf.placeholder(tf.int32, [None])
 		self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
 		self.qtype_vec = tf.placeholder(tf.float32, [None, self.qtype_count])
 
@@ -275,6 +281,17 @@ class RCModel(object):
 			if self.use_dropout:
 				self.fuse_p_encodes = tf.nn.dropout(self.fuse_p_encodes, self.dropout_keep_prob)
 
+	def _pred_ans_inter(self):
+		with tf.variable_scope("ans_inter"):
+			last_output = tf.reduce_max(self.fuse_p_encodes, axis=1)
+
+			softmax_w = tf.get_variable("softmax_w",
+										[last_output.get_shape().as_list()[-1], self.ans_inter_num],
+										dtype=tf.float32)
+			softmax_b = tf.get_variable("softmax_b", [self.ans_inter_num], dtype=tf.float32)
+			self.ans_inter_logits = tf.matmul(last_output, softmax_w) + softmax_b
+			self.pred_ans_inter = tf.argmax(self.ans_inter_logits, axis=-1)
+
 	def _decode(self):
 		"""
 		Employs Pointer Network to get the the probs of each position
@@ -291,6 +308,10 @@ class RCModel(object):
 			outer = tf.matrix_band_part(self.out_matrix, 0, -1)
 			self.pred_starts = tf.argmax(tf.reduce_max(outer, axis=2), axis=-1)
 			self.pred_ends = tf.argmax(tf.reduce_max(outer, axis=1), axis=-1)
+			self.pred_ends = tf.reduce_min(
+				tf.stack([self.pred_ends,
+						  self.pred_starts + (self.pred_ans_inter + 1) * self.ans_len_inter_size],
+						 axis=1), axis=-1)
 
 	def _compute_loss(self):
 		"""
@@ -323,6 +344,11 @@ class RCModel(object):
 			self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
 				labels=self.qtype_vec, logits=type_logits))
 
+		with tf.variable_scope('ans_inter_loss'):
+			inter_vec = tf.one_hot(self.ans_inter, self.ans_inter_num, axis=1)
+			self.ans_inter_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
+				labels=inter_vec, logits=self.ans_inter_logits))
+
 		with tf.variable_scope("mrl"):
 			batch_size = tf.shape(self.start_label)[0]
 			out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
@@ -350,7 +376,7 @@ class RCModel(object):
 
 		if self.loss_type == 'pointer':
 			self.mrl = tf.constant(0, dtype=tf.float32)
-			self.loss = self.pointer_loss + 0.1 * self.type_loss
+			self.loss = self.pointer_loss + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		elif self.loss_type == 'mrl_mix':
 			self.mrl = self.mrl_mix
 			self.loss = self.mrl
@@ -423,6 +449,8 @@ class RCModel(object):
 						 self.end_label: batch['end_id'],
 						 self.wiqB: batch['wiqB'],
 						 self.qtype_vec: batch['qtype_vecs'],
+						 # answer inter
+						 self.ans_inter: batch['answer_inter'],
 						 # delta stuff
 						 self.delta_starts: batch['delta_token_starts'],
 						 self.delta_ends: batch['delta_token_ends'],
@@ -547,6 +575,8 @@ class RCModel(object):
 						 self.end_label: batch['end_id'],
 						 self.wiqB: batch['wiqB'],
 						 self.qtype_vec: batch['qtype_vecs'],
+						 # answer inter
+						 self.ans_inter: batch['answer_inter'],
 
 						 # delta stuff
 						 self.delta_starts: batch['delta_token_starts'],
@@ -565,9 +595,12 @@ class RCModel(object):
 					 self.p_CL: batch['article_CL'],
 					 self.q_CL: batch['question_CL']
 					 })
-			pred_starts, pred_ends, mrl, pointer_loss = self.sess.run([self.pred_starts,
-																	   self.pred_ends, self.mrl, self.pointer_loss],
-																	  feed_dict)
+			pred_starts, pred_ends, ans_inter, mrl, pointer_loss = self.sess.run([self.pred_starts,
+																				  self.pred_ends,
+																				  self.pred_ans_inter,
+																				  self.mrl,
+																				  self.pointer_loss],
+																				 feed_dict)
 			batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size

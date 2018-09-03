@@ -33,6 +33,8 @@ class MilitaryAiDataset(object):
 		self.char_min_cnt = cfg.char_min_cnt
 		self.token_min_cnt = cfg.token_min_cnt
 		self.use_char_emb = cfg.use_char_emb
+		self.ans_len_inter_size = cfg.ans_len_inter_size
+		self.ans_max_token_len = cfg.ans_max_token_len
 		self.all_tokens = []
 		self.all_flags = []
 		self.all_chars = []
@@ -261,7 +263,7 @@ class MilitaryAiDataset(object):
 					  'start_id': [],
 					  'end_id': [],
 					  'qtype_vecs': [],
-					  # 'answer_tokens_len': [],
+					  'answer_inter': [],
 					  'question_c_len': [],
 					  'article_c_len': [],
 
@@ -311,14 +313,16 @@ class MilitaryAiDataset(object):
 			batch_data['question_CL'] = pad_q_token_len
 		for sample in batch_data['raw_data']:
 			if 'answer_tokens' in sample and len(sample['answer_tokens']):
-				# batch_data['answer_tokens_len'].append(len(sample['answer_tokens']))
+				batch_data['answer_inter'].append(
+					max(len(sample['answer_tokens']),
+						self.ans_max_token_len - self.ans_len_inter_size) // self.ans_len_inter_size)
 				batch_data['start_id'].append(sample['answer_token_start'])
 				batch_data['end_id'].append(sample['answer_token_end'])
 			else:
 				# fake span for some samples, only valid for testing
 				batch_data['start_id'].append(0)
 				batch_data['end_id'].append(0)
-				# batch_data['answer_tokens_len'].append(0)
+				batch_data['answer_inter'].append()
 		batch_data = self._gen_hand_features(batch_data)
 		return batch_data
 
