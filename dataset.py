@@ -1,3 +1,4 @@
+# coding = utf-8
 import json
 import logging
 import multiprocessing
@@ -15,28 +16,23 @@ class MilitaryAiDataset(object):
 	This module implements the data loading and preprocessing steps
 	"""
 
-	def __init__(self, train_preprocessed_files=[], train_raw_files=[],
-				 test_preprocessed_files=[], test_raw_files=[],
-				 char_embed_path="", token_embed_path="",
-				 elmo_vocab_path="", elmo_embed_path="",
-				 char_min_cnt=1, token_min_cnt=3,
-				 dev_split=0.1, seed=502, use_char_emb=False):
+	def __init__(self, cfg):
 		self.logger = logging.getLogger("Military AI")
 		self.logger.setLevel(logging.INFO)
 		self.train_set, self.test_set = [], []
 
-		self.train_raw_path = train_raw_files
-		self.test_raw_path = test_raw_files
+		self.train_raw_path = cfg.train_raw_files
+		self.test_raw_path = cfg.test_raw_files
 
-		self.train_preprocessed_path = train_preprocessed_files
-		self.test_preprocessed_path = test_preprocessed_files
-		self.char_embed_path = char_embed_path
-		self.token_embed_path = token_embed_path
-		self.elmo_vocab_path = elmo_vocab_path
-		self.elmo_embed_path = elmo_embed_path
-		self.char_min_cnt = char_min_cnt
-		self.token_min_cnt = token_min_cnt
-		self.use_char_emb = use_char_emb
+		self.train_preprocessed_path = cfg.train_preprocessed_files
+		self.test_preprocessed_path = cfg.test_preprocessed_files
+		self.char_embed_path = cfg.char_embed_file
+		self.token_embed_path = cfg.token_embed_file
+		self.elmo_vocab_path = cfg.elmo_dict_file
+		self.elmo_embed_path = cfg.elmo_embed_file
+		self.char_min_cnt = cfg.char_min_cnt
+		self.token_min_cnt = cfg.token_min_cnt
+		self.use_char_emb = cfg.use_char_emb
 		self.all_tokens = []
 		self.all_flags = []
 		self.all_chars = []
@@ -56,9 +52,9 @@ class MilitaryAiDataset(object):
 			[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
 		#  split train & dev by article_id
 		self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
-		np.random.seed(seed)
+		np.random.seed(cfg.seed)
 		np.random.shuffle(self.total_article_ids)
-		self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * dev_split)]
+		self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * cfg.dev_split)]
 		self.dev_set = list(
 			filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 				   self.train_set))
@@ -261,13 +257,15 @@ class MilitaryAiDataset(object):
 
 					  'question_char_ids': [],
 					  'article_char_ids': [],
+
 					  'start_id': [],
 					  'end_id': [],
 					  'qtype_vecs': [],
+					  # 'answer_tokens_len': [],
 					  'question_c_len': [],
 					  'article_c_len': [],
 
-					  #delta stuff
+					  # delta stuff
 					  'delta_token_starts': [],
 					  'delta_token_ends': [],
 					  'delta_rouges': [],
@@ -275,8 +273,6 @@ class MilitaryAiDataset(object):
 
 					  # hand features
 					  'wiqB': [],
-
-
 
 					  'article_pad_len': 0,
 					  'question_pad_len': 0,
@@ -290,6 +286,7 @@ class MilitaryAiDataset(object):
 				batch_data['article_char_ids'].append(sample['article_char_ids'])
 			batch_data['question_token_ids'].append(sample['question_token_ids'])
 			batch_data['question_tokens_len'].append(sample['question_tokens_len'])
+
 			batch_data['article_token_ids'].append(sample['article_token_ids'])
 			batch_data['article_tokens_len'].append(sample['article_tokens_len'])
 			batch_data['question_flag_ids'].append(sample['question_flag_ids'])
@@ -304,7 +301,7 @@ class MilitaryAiDataset(object):
 			batch_data['delta_token_starts'].extend(sample['delta_token_starts'])
 			batch_data['delta_token_ends'].extend(sample['delta_token_ends'])
 			batch_data['delta_rouges'].extend(sample['delta_rouges'])
-			batch_data['delta_span_idxs'].extend([sidx]*len(sample['delta_rouges']))
+			batch_data['delta_span_idxs'].extend([sidx] * len(sample['delta_rouges']))
 
 		batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
 		batch_data['article_pad_len'] = pad_p_len
@@ -314,13 +311,14 @@ class MilitaryAiDataset(object):
 			batch_data['question_CL'] = pad_q_token_len
 		for sample in batch_data['raw_data']:
 			if 'answer_tokens' in sample and len(sample['answer_tokens']):
-
+				# batch_data['answer_tokens_len'].append(len(sample['answer_tokens']))
 				batch_data['start_id'].append(sample['answer_token_start'])
 				batch_data['end_id'].append(sample['answer_token_end'])
 			else:
 				# fake span for some samples, only valid for testing
 				batch_data['start_id'].append(0)
 				batch_data['end_id'].append(0)
+				# batch_data['answer_tokens_len'].append(0)
 		batch_data = self._gen_hand_features(batch_data)
 		return batch_data
 
@@ -469,10 +467,8 @@ class MilitaryAiDataset(object):
 
 
 if __name__ == '__main__':
-	logging.basicConfig(level=logging.INFO)  # 设置日志级别
-	data = MilitaryAiDataset(['./data/train/question_preprocessed.json'],
-							 ['./data/train/question.json'],
-							 char_embed_path='./data/embedding/char_embed75.wv',
-							 token_embed_path='./data/embedding/token_embed300.wv',
-							 elmo_vocab_path="./data/embedding/elmo-military_vocab.txt",
-							 elmo_embed_path="./data/embedding/elmo-military_emb.pkl", )
+	from config import base_config
+
+	cfg = base_config.config
+
+	data = MilitaryAiDataset(cfg)

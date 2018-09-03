@@ -1,3 +1,4 @@
+# coding = utf-8
 """
 This module implements the Vocab class for converting string to id and back
 """

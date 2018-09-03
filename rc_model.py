@@ -1,3 +1,4 @@
+# coding = utf-8
 """
 This module implements the reading comprehension models based on:
 1. the BiDAF algorithm described in https://arxiv.org/abs/1611.01603
@@ -27,28 +28,23 @@ class RCModel(object):
 	Implements the main reading comprehension model.
 	"""
 
-	def __init__(self, char_vocab, token_vocab, flag_vocab, elmo_vocab, args, qtype_count=10):
+	def __init__(self, char_vocab, token_vocab, flag_vocab, elmo_vocab, cfg):
 
 		# logging
 		self.logger = logging.getLogger("Military AI")
 
 		# basic config
-		self.algo = args.algo
-		# self.suffix = args.suffix
-		self.hidden_size = args.hidden_size
-		self.optim_type = args.optim
-		self.learning_rate = args.learning_rate
-		self.lr_decay = args.lr_decay
-		self.loss_type = args.loss_type
-		self.weight_decay = args.weight_decay
-		self.use_dropout = args.dropout_keep_prob < 1
-		self.use_char_emb = args.use_char_emb
-		self.qtype_count = qtype_count
-		# length limit
-		# self.max_p_num = args.max_p_num
-		# self.max_p_len = args.max_p_len
-		# self.max_q_len = args.max_q_len
-		# self.max_a_len = args.max_a_len
+		self.algo = cfg.algo
+		# self.suffix = cfg.suffix
+		self.hidden_size = cfg.hidden_size
+		self.optim_type = cfg.optim
+		self.learning_rate = cfg.learning_rate
+		self.lr_decay = cfg.lr_decay
+		self.loss_type = cfg.loss_type
+		self.weight_decay = cfg.weight_decay
+		self.use_dropout = cfg.dropout_keep_prob < 1
+		self.use_char_emb = cfg.use_char_emb
+		self.qtype_count = cfg.qtype_count
 
 		# the vocab
 		self.char_vocab = char_vocab
@@ -58,7 +54,7 @@ class RCModel(object):
 
 		# session info
 		sess_config = tf.ConfigProto()
-		sess_config.gpu_options.allow_growth = True
+		sess_config.gpu_options.allow_growth = False
 		self.sess = tf.Session(config=sess_config)
 
 		self._build_graph()
@@ -116,7 +112,7 @@ class RCModel(object):
 
 		self.wiqB = tf.placeholder(tf.float32, [None, None, 1])
 		self.qtype_vec = tf.placeholder(tf.float32, [None, self.qtype_count])
-		# self.wiqW = tf.placeholder(tf.float32, [None, None, 1])
+
 		self.p_pad_len = tf.placeholder(tf.int32)
 		self.q_pad_len = tf.placeholder(tf.int32)
 		self.p_CL = tf.placeholder(tf.int32)

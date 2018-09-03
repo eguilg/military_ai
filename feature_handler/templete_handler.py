@@ -1,9 +1,10 @@
+# coding = utf-8
 """
 回答可以直接用模板匹配解决的问题
 """
 from feature_handler.templete_common import *
 from feature_handler.handler import Handler
-from testing.rouge import RougeL
+from utils.rouge import RougeL
 import re
 
 

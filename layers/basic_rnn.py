@@ -1,3 +1,4 @@
+# coding = utf-8
 """
 This module provides wrappers for variants of RNN in Tensorflow
 """

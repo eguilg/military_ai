@@ -1,8 +1,9 @@
+# coding = utf-8
 """
 回答比如主旨, 文章来源, 谁称XX等问题
 """
 from feature_handler.handler import Handler
-from testing.rouge import RougeL
+from utils.rouge import RougeL
 
 
 

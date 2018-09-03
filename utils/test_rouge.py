@@ -1,3 +1,4 @@
+# coding = utf-8
 from .rouge import RougeL
 
 rouge = RougeL()

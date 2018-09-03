@@ -1,3 +1,4 @@
+# coding = utf-8
 """
 This module implements the Pointer Network for selecting answer spans, as described in:
 https://openreview.net/pdf?id=B1-q5Pqxl

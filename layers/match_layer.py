@@ -1,3 +1,4 @@
+# coding = utf-8
 """
 This module implements the core layer of Match-LSTM and BiDAF
 """

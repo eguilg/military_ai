@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-#/usr/bin/python2
 
 import tensorflow as tf
 import numpy as np

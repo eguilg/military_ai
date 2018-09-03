@@ -1,3 +1,4 @@
+# coding = utf-8
 from .common import get_ngram, get_match_size, get_trim_string
 
 
