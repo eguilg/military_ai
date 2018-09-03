@@ -427,7 +427,7 @@ class RCModel(object):
 						 self.delta_starts: batch['delta_token_starts'],
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
-						 self.delta_rouges: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_rouges'],
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
@@ -552,7 +552,7 @@ class RCModel(object):
 						 self.delta_starts: batch['delta_token_starts'],
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
-						 self.delta_rouges: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_rouges'],
 
 						 self.dropout_keep_prob: 1.0}
 
