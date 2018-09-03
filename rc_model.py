@@ -320,7 +320,7 @@ class RCModel(object):
 			softmax_b = tf.get_variable("softmax_b", [self.qtype_count], dtype=tf.float32)
 			type_logits = tf.matmul(last_output, softmax_w) + softmax_b
 
-			self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+			self.type_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(
 				labels=self.qtype_vec, logits=type_logits))
 
 		with tf.variable_scope("mrl"):
