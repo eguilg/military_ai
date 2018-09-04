@@ -54,7 +54,7 @@ class RCModel(object):
 
 		# session info
 		sess_config = tf.ConfigProto()
-		sess_config.gpu_options.allow_growth = False
+		sess_config.gpu_options.allow_growth = True
 		self.sess = tf.Session(config=sess_config)
 
 		self._build_graph()
@@ -330,34 +330,22 @@ class RCModel(object):
 			delta_hard_pos = self.start_label * self.p_pad_len + self.end_label
 			batch_idx_hard = tf.range(0, batch_size)
 			indices_hard = tf.to_int64(tf.stack([batch_idx_hard, delta_hard_pos], axis=1))
-			rouge_hard = tf.sparse_to_dense(indices_hard,
-											tf.to_int64([batch_size, self.p_pad_len ** 2]),
-											1.0, 0.0)
-			delta_hard = 1.0 - rouge_hard
+			delta_hard = 1.0 - tf.sparse_to_dense(indices_hard,
+												  tf.to_int64([batch_size, self.p_pad_len ** 2]),
+												  1.0, 0.0)
 
 			# soft
 			delta_soft_pos = self.delta_starts * self.p_pad_len + self.delta_ends
 			indices_soft = tf.to_int64(tf.stack([self.delta_span_idxs, delta_soft_pos], axis=1))
-			rouge_soft = tf.sparse_to_dense(indices_soft,
-											tf.to_int64([batch_size, self.p_pad_len ** 2]),
-											self.delta_rouges, 0.0)
-			delta_soft = 1.0 - rouge_soft
+			delta_soft = 1.0 - tf.sparse_to_dense(indices_soft,
+												  tf.to_int64([batch_size, self.p_pad_len ** 2]),
+												  self.delta_rouges, 0.0)
 
-			# mix
-			rouge_mix = tf.reduce_max(tf.stack([rouge_hard, rouge_soft], axis=2), axis=-1)
 			delta_mix = tf.reduce_min(tf.stack([delta_hard, delta_soft], axis=2), axis=-1)
 
 			self.mrl_hard = tf.reduce_mean(tf.reduce_sum(delta_hard * out_matrix, axis=-1))
 			self.mrl_soft = tf.reduce_mean(tf.reduce_sum(delta_soft * out_matrix, axis=-1))
 			self.mrl_mix = tf.reduce_mean(tf.reduce_sum(delta_mix * out_matrix, axis=-1))
-
-			out_matrix = tf.clip_by_value(out_matrix, 1e-9, 1.0)
-			self.log_mrl_hard = - tf.reduce_mean(
-				tf.reduce_sum(rouge_hard * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_hard, axis=-1))
-			self.log_mrl_soft = - tf.reduce_mean(
-				tf.reduce_sum(rouge_soft * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_soft, axis=-1))
-			self.log_mrl_mix = - tf.reduce_mean(
-				tf.reduce_sum(rouge_mix * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_mix, axis=-1))
 
 		if self.loss_type == 'pointer':
 			self.mrl = tf.constant(0, dtype=tf.float32)
@@ -370,15 +358,6 @@ class RCModel(object):
 			self.loss = self.mrl + 0.1 * self.type_loss
 		elif self.loss_type == 'mrl_hard':
 			self.mrl = self.mrl_hard
-			self.loss = self.mrl + 0.1 * self.type_loss
-		elif self.loss_type == 'log_mrl_mix':
-			self.mrl = self.log_mrl_mix
-			self.loss = self.mrl + 0.1 * self.type_loss
-		elif self.loss_type == 'log_mrl_soft':
-			self.mrl = self.log_mrl_soft
-			self.loss = self.mrl + 0.1 * self.type_loss
-		elif self.loss_type == 'log_mrl_hard':
-			self.mrl = self.log_mrl_hard
 			self.loss = self.mrl + 0.1 * self.type_loss
 		else:
 			assert 0 != 0
@@ -451,6 +430,7 @@ class RCModel(object):
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
+				print('aaaaaaaaaaaaaaaaaaaaaaa')
 				feed_dict.update(
 					{self.p_c: batch['article_char_ids'],
 					 self.q_c: batch['question_char_ids'],
