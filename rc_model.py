@@ -351,9 +351,13 @@ class RCModel(object):
 			self.mrl_soft = tf.reduce_mean(tf.reduce_sum(delta_soft * out_matrix, axis=-1))
 			self.mrl_mix = tf.reduce_mean(tf.reduce_sum(delta_mix * out_matrix, axis=-1))
 
-			# out_matrix = tf.clip_by_value(out_matrix, 1e-6, 1.0)
-			# self.log_mrl_hard =
-
+			out_matrix = tf.clip_by_value(out_matrix, 1e-9, 1.0)
+			self.log_mrl_hard = - tf.reduce_mean(
+				tf.reduce_sum(rouge_hard * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_hard, axis=-1))
+			self.log_mrl_soft = - tf.reduce_mean(
+				tf.reduce_sum(rouge_soft * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_soft, axis=-1))
+			self.log_mrl_mix = - tf.reduce_mean(
+				tf.reduce_sum(rouge_mix * tf.log(out_matrix), axis=-1) / tf.reduce_sum(rouge_mix, axis=-1))
 
 		if self.loss_type == 'pointer':
 			self.mrl = tf.constant(0, dtype=tf.float32)
@@ -366,6 +370,15 @@ class RCModel(object):
 			self.loss = self.mrl + 0.1 * self.type_loss
 		elif self.loss_type == 'mrl_hard':
 			self.mrl = self.mrl_hard
+			self.loss = self.mrl + 0.1 * self.type_loss
+		elif self.loss_type == 'log_mrl_mix':
+			self.mrl = self.log_mrl_mix
+			self.loss = self.mrl + 0.1 * self.type_loss
+		elif self.loss_type == 'log_mrl_soft':
+			self.mrl = self.log_mrl_soft
+			self.loss = self.mrl + 0.1 * self.type_loss
+		elif self.loss_type == 'log_mrl_hard':
+			self.mrl = self.log_mrl_hard
 			self.loss = self.mrl + 0.1 * self.type_loss
 		else:
 			assert 0 != 0
