@@ -5,10 +5,10 @@ from config import base_config
 class ConfigMatchLSTM1(base_config.ConfigBase):
 	# model
 	algo = 'MLSTM'
-	suffix = '_h200'
+	suffix = '_h150'
 
 	# model
-	hidden_size = 200
+	hidden_size = 150
 
 	# loss_type = 'mrl_mix'
 	loss_type = 'pointer'
@@ -17,10 +17,10 @@ class ConfigMatchLSTM1(base_config.ConfigBase):
 class ConfigMatchLSTM2(base_config.ConfigBase):
 	# model
 	algo = 'MLSTM'
-	suffix = '_h200'
+	suffix = '_h100'
 
 	# model
-	hidden_size = 150
+	hidden_size = 100
 
 	# loss_type = 'mrl_mix'
 	loss_type = 'pointer'

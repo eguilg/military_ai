@@ -58,7 +58,7 @@ class RCModel(object):
 
 		# session info
 		sess_config = tf.ConfigProto()
-		sess_config.gpu_options.allow_growth = False
+		sess_config.gpu_options.allow_growth = True
 		self.sess = tf.Session(config=sess_config)
 
 		self._build_graph()
@@ -303,8 +303,8 @@ class RCModel(object):
 		with tf.variable_scope('decode'):
 			decoder = PointerNetDecoder(self.hidden_size)
 			self.start_probs, self.end_probs = decoder.decode(self.fuse_p_encodes, self.sep_q_encodes)
-			self.out_matrix = tf.matmul(tf.expand_dims(tf.nn.softmax(self.start_probs), axis=2),
-										tf.expand_dims(tf.nn.softmax(self.end_probs), axis=1))
+			self.out_matrix = tf.matmul(tf.expand_dims(self.start_probs, axis=2),
+										tf.expand_dims(self.end_probs, axis=1))
 			outer = tf.matrix_band_part(self.out_matrix, 0, -1)
 			self.pred_starts = tf.argmax(tf.reduce_max(outer, axis=2), axis=-1)
 			self.pred_ends = tf.argmax(tf.reduce_max(outer, axis=1), axis=-1)
@@ -367,7 +367,6 @@ class RCModel(object):
 												  tf.to_int64([batch_size, self.p_pad_len ** 2]),
 												  self.delta_rouges, 0.0)
 
-			# mix
 			delta_mix = tf.reduce_min(tf.stack([delta_hard, delta_soft], axis=2), axis=-1)
 
 			self.mrl_hard = tf.reduce_mean(tf.reduce_sum(delta_hard * out_matrix, axis=-1))
@@ -379,13 +378,13 @@ class RCModel(object):
 			self.loss = self.pointer_loss + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		elif self.loss_type == 'mrl_mix':
 			self.mrl = self.mrl_mix
-			self.loss = self.mrl
+			self.loss = self.mrl + 0.1 * self.type_loss
 		elif self.loss_type == 'mrl_soft':
 			self.mrl = self.mrl_soft
-			self.loss = self.mrl
+			self.loss = self.mrl + 0.1 * self.type_loss
 		elif self.loss_type == 'mrl_hard':
 			self.mrl = self.mrl_hard
-			self.loss = self.mrl
+			self.loss = self.mrl + 0.1 * self.type_loss
 		else:
 			assert 0 != 0
 
@@ -455,10 +454,11 @@ class RCModel(object):
 						 self.delta_starts: batch['delta_token_starts'],
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
-						 self.delta_rouges: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_rouges'],
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
+				print('aaaaaaaaaaaaaaaaaaaaaaa')
 				feed_dict.update(
 					{self.p_c: batch['article_char_ids'],
 					 self.q_c: batch['question_char_ids'],
@@ -582,7 +582,7 @@ class RCModel(object):
 						 self.delta_starts: batch['delta_token_starts'],
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
-						 self.delta_rouges: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_rouges'],
 
 						 self.dropout_keep_prob: 1.0}
 

@@ -26,8 +26,8 @@ class ConfigBase:
 	dropout_keep_prob = 0.8
 	embed_size = 300
 	hidden_size = 150
-	use_char_emb = 0
-	use_embe = 1
+	use_char_emb = False
+	use_embe = True
 
 	# paths
 	root = './'
