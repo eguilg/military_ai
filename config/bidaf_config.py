@@ -10,8 +10,8 @@ class ConfigBidaf1(base_config.ConfigBase):
 	# model
 	hidden_size = 200
 
-	# loss_type = 'pointer'
-	loss_type = 'mrl_mix'
+	loss_type = 'pointer'
+	# loss_type = 'mrl_mix'
 	# loss_type = 'mrl_soft'
 	# loss_type = 'mrl_hard'
 
