@@ -48,8 +48,9 @@ class RCModel(object):
 
 		self.ans_max_token_len = cfg.ans_max_token_len
 		self.ans_len_inter_size = cfg.ans_len_inter_size
-		self.ans_inter_num = (self.ans_max_token_len - self.ans_len_inter_size) // self.ans_len_inter_size + 1
-
+		self.ans_inter_num = self.ans_max_token_len // self.ans_len_inter_size + 1
+		self.ans_cut_prob_thresh = cfg.ans_cut_prob_thresh
+		self.ans_cut_range = cfg.ans_cut_range
 		# the vocab
 		self.char_vocab = char_vocab
 		self.token_vocab = token_vocab
@@ -290,7 +291,7 @@ class RCModel(object):
 										dtype=tf.float32)
 			softmax_b = tf.get_variable("softmax_b", [self.ans_inter_num], dtype=tf.float32)
 			self.ans_inter_logits = tf.matmul(last_output, softmax_w) + softmax_b
-			self.pred_ans_inter = tf.argmax(self.ans_inter_logits, axis=-1)
+			self.ans_inter_prob = tf.nn.softmax(self.ans_inter_logits, axis=-1)
 
 	def _decode(self):
 		"""
@@ -303,15 +304,24 @@ class RCModel(object):
 		with tf.variable_scope('decode'):
 			decoder = PointerNetDecoder(self.hidden_size)
 			self.start_probs, self.end_probs = decoder.decode(self.fuse_p_encodes, self.sep_q_encodes)
-			self.out_matrix = tf.matmul(tf.expand_dims(self.start_probs, axis=2),
-										tf.expand_dims(self.end_probs, axis=1))
-			outer = tf.matrix_band_part(self.out_matrix, 0, -1)
-			self.pred_starts = tf.argmax(tf.reduce_max(outer, axis=2), axis=-1)
-			self.pred_ends = tf.argmax(tf.reduce_max(outer, axis=1), axis=-1)
-			self.pred_ends = tf.reduce_min(
-				tf.stack([self.pred_ends,
-						  self.pred_starts + (self.pred_ans_inter + 1) * self.ans_len_inter_size],
-						 axis=1), axis=-1)
+			self.prob_matirx = tf.matmul(tf.expand_dims(self.start_probs, axis=2),
+										 tf.expand_dims(self.end_probs, axis=1))
+
+	# self.band_prob_matirx = tf.matrix_band_part(self.prob_matirx, 0, -1)
+	# self.pred_starts = tf.argmax(tf.reduce_max(self.band_prob_matirx, axis=2), axis=-1)
+	# self.pred_ends = tf.argmax(tf.reduce_max(self.band_prob_matirx, axis=1), axis=-1)
+
+	# out_ans_len = self.pred_ends - self.pred_starts + 1
+	# pred_ans_len = (self.pred_ans_inter + 1) * self.ans_len_inter_size
+	# ans_len_thresh = tf.to_int64(tf.fill(tf.shape(self.pred_ans_inter), self.ans_max_token_len + 1))
+	#
+	# out_ans_len_mask = tf.greater_equal(out_ans_len, ans_len_thresh)
+	# pred_ans_len_mask = tf.less(pred_ans_len, ans_len_thresh)
+	#
+	# final_ans_len = tf.where(out_ans_len_mask, out_ans_len, pred_ans_len)
+	# final_ans_len = tf.where(pred_ans_len_mask, pred_ans_len, final_ans_len)
+	#
+	# self.pred_ends = self.pred_starts + final_ans_len - 1
 
 	def _compute_loss(self):
 		"""
@@ -351,7 +361,7 @@ class RCModel(object):
 
 		with tf.variable_scope("mrl"):
 			batch_size = tf.shape(self.start_label)[0]
-			out_matrix = tf.reshape(self.out_matrix, [batch_size, self.p_pad_len ** 2])
+			out_matrix = tf.reshape(self.prob_matirx, [batch_size, self.p_pad_len ** 2])
 			# hard
 			delta_hard_pos = self.start_label * self.p_pad_len + self.end_label
 			batch_idx_hard = tf.range(0, batch_size)
@@ -378,13 +388,13 @@ class RCModel(object):
 			self.loss = self.pointer_loss + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		elif self.loss_type == 'mrl_mix':
 			self.mrl = self.mrl_mix
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		elif self.loss_type == 'mrl_soft':
 			self.mrl = self.mrl_soft
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		elif self.loss_type == 'mrl_hard':
 			self.mrl = self.mrl_hard
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.1 * self.type_loss + 0.2 * self.ans_inter_loss
 		else:
 			assert 0 != 0
 
@@ -430,8 +440,8 @@ class RCModel(object):
 			train_batches: iterable batch data for training
 			dropout_keep_prob: float value indicating dropout keep probability
 		"""
-		total_num, total_mrl, total_pointer_loss = 0, 0, 0
-		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss = 50, 1000, 0, 0
+		total_num, total_mrl, total_pointer_loss, total_ans_acc = 0, 0, 0, 0
+		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss, n_batch_ans_acc = 50, 1000, 0, 0, 0
 		for bitx, batch in enumerate(train_batches, 1):
 			feed_dict = {self.p_t: batch['article_token_ids'],
 						 self.q_t: batch['question_token_ids'],
@@ -458,7 +468,6 @@ class RCModel(object):
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
-				print('aaaaaaaaaaaaaaaaaaaaaaa')
 				feed_dict.update(
 					{self.p_c: batch['article_char_ids'],
 					 self.q_c: batch['question_char_ids'],
@@ -473,27 +482,36 @@ class RCModel(object):
 			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
 			#                                    batch['article_pad_len'], batch['question_pad_len']))
 			# print(batch['question_char_ids'])
-			_, mrl, pointer_loss, type_loss = self.sess.run(
-				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
+			_, mrl, pointer_loss, type_loss, pred_ans_inter_prob = self.sess.run(
+				[self.train_op, self.mrl, self.pointer_loss, self.type_loss, self.ans_inter_prob], feed_dict)
+			pred_ans_inter = np.argmax(pred_ans_inter_prob, -1)
 			batch_size = len(batch['raw_data'])
+			ans_acc = np.sum(batch['answer_inter'] == pred_ans_inter)
+			# self.logger.info('pred ans len inter {}'.format(list(pred_ans_inter)))
+			# self.logger.info('gt ans len inter {}'.format(batch['answer_inter']))
+			total_ans_acc += ans_acc
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size
 			total_num += batch_size
 			n_batch_mrl += mrl
 			n_batch_pointer_loss += pointer_loss
+			n_batch_ans_acc += ans_acc / batch_size
 			if log_every_n_batch > 0 and bitx % log_every_n_batch == 0:
 				self.logger.info('Average loss from batch {} to {} is MRL Loss: {}, Pointer Loss: {}'.format(
 					bitx - log_every_n_batch + 1, bitx, n_batch_mrl / log_every_n_batch,
 					n_batch_pointer_loss / log_every_n_batch))
+				self.logger.info('Ans Len Acc is {}'.format(n_batch_ans_acc / log_every_n_batch))
 				n_batch_mrl = 0
 				n_batch_pointer_loss = 0
+				n_batch_ans_acc = 0
 			if eval_every_n_batch > 0 and bitx > 0 and bitx % eval_every_n_batch == 0:
 				self.logger.info('Evaluating the model after batch {}'.format(bitx))
 				if data.dev_set is not None:
 					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
+					eval_mrl, eval_pointer_loss, eval_ans_acc, bleu_rouge = self.evaluate(eval_batches)
 					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
 					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
+					self.logger.info('Dev eval ans len acc: {}'.format(eval_ans_acc))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
@@ -502,7 +520,7 @@ class RCModel(object):
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 
-		return 1.0 * total_mrl / total_num, 1.0 * total_pointer_loss / total_num, max_rouge_l
+		return 1.0 * total_mrl / total_num, 1.0 * total_pointer_loss / total_num, 1.0 * total_ans_acc / total_num, max_rouge_l
 
 	def train(self, data, epochs, batch_size, save_dir, save_prefix,
 			  dropout_keep_prob=1.0, evaluate=True):
@@ -521,20 +539,24 @@ class RCModel(object):
 		for epoch in tqdm(range(1, epochs + 1)):
 			self.logger.info('Training the model for epoch {}'.format(epoch))
 			train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
-			train_mrl, train_pointer_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob, data,
-																		   max_rouge_l, epoch,
-																		   save_dir, save_prefix)
+			train_mrl, train_pointer_loss, train_ans_acc, max_rouge_l = self._train_epoch(train_batches,
+																						  dropout_keep_prob, data,
+																						  max_rouge_l, epoch,
+																						  save_dir, save_prefix)
+
 			self.logger.info(
 				'Average train loss for epoch {} is MRL Loss: {}, Pointer Loss: {}'.format(epoch, train_mrl,
 																						   train_pointer_loss))
+			self.logger.info('Ans Len Acc is {}'.format(train_ans_acc))
 
 			if evaluate:
 				self.logger.info('Evaluating the model after epoch {}'.format(epoch))
 				if data.dev_set is not None:
 					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
-					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
+					eval_mrl, eval_pointer_loss, eval_ans_acc, bleu_rouge = self.evaluate(eval_batches)
 					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
 					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
+					self.logger.info('Dev eval ans len acc: {}'.format(eval_ans_acc))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
@@ -556,8 +578,11 @@ class RCModel(object):
 			save_full_info: if True, the pred_answers will be added to raw sample and saved
 		"""
 		pred_answers, ref_answers = [], []
-		total_mrl, total_pointer_loss, total_num = 0, 0, 0
-		rl, bleu = RougeL(), Bleu()
+		total_mrl, total_pointer_loss, total_num, total_ans_acc = 0, 0, 0, 0
+		rl_cut, bleu_cut = RougeL(), Bleu()
+		rl_gt_cut, bleu_gt_cut = RougeL(), Bleu()
+		rl_org, bleu_org = RougeL(), Bleu()
+
 		ariticle_map = {}
 		for b_itx, batch in enumerate(eval_batches):
 			feed_dict = {self.p_t: batch['article_token_ids'],
@@ -595,19 +620,20 @@ class RCModel(object):
 					 self.p_CL: batch['article_CL'],
 					 self.q_CL: batch['question_CL']
 					 })
-			pred_starts, pred_ends, ans_inter, mrl, pointer_loss = self.sess.run([self.pred_starts,
-																				  self.pred_ends,
-																				  self.pred_ans_inter,
-																				  self.mrl,
-																				  self.pointer_loss],
-																				 feed_dict)
+			prob_matrix, ans_inter_prob, mrl, pointer_loss = self.sess.run([self.prob_matirx,
+																			self.ans_inter_prob,
+																			self.mrl,
+																			self.pointer_loss],
+																		   feed_dict)
+			ans_inter = np.argmax(ans_inter_prob, -1)
 			batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size
 			total_num += batch_size
+			total_ans_acc += np.sum(ans_inter == batch['answer_inter'])
 
-			for sample, best_start, best_end in zip(batch['raw_data'], pred_starts, pred_ends):
-				best_answer = ''.join(sample['article_tokens'][best_start: best_end + 1])
+			for sample, out_matrix, inter_prob in zip(batch['raw_data'], prob_matrix.tolist(), ans_inter_prob.tolist()):
+				best_answer_origin, best_answer_cut, best_answer_gt_cut = self.find_best_answer(sample, out_matrix, inter_prob)
 				if sample['article_id'] not in ariticle_map:
 					ariticle_map[sample['article_id']] = len(ariticle_map)
 					pred_answers.append({'article_id': sample['article_id'],
@@ -619,21 +645,35 @@ class RCModel(object):
 
 				pred_answers[ariticle_map[sample['article_id']]]['questions'].append(
 					{'question_id': sample['question_id'],
-					 'answer': best_answer
+					 'answer': best_answer_cut
 					 })
 				ref_answers[ariticle_map[sample['article_id']]]['questions'].append(
 					{'question_id': sample['question_id'],
 					 'answer': sample['answer']
 					 })
 
-				rl.add_inst(best_answer, sample['answer'])
-				bleu.add_inst(best_answer, sample['answer'])
+				rl_cut.add_inst(best_answer_cut, sample['answer'])
+				bleu_cut.add_inst(best_answer_cut, sample['answer'])
+
+				rl_org.add_inst(best_answer_origin, sample['answer'])
+				bleu_org.add_inst(best_answer_origin, sample['answer'])
+
+				rl_gt_cut.add_inst(best_answer_gt_cut, sample['answer'])
+				bleu_gt_cut.add_inst(best_answer_gt_cut, sample['answer'])
 
 		# compute the bleu and rouge scores
-		rougel = rl.get_score()
-		bleu4 = bleu.get_score()
-		bleu_rouge = {'Rouge-L': rougel,
-					  'Bleu-4': bleu4
+		rougel_cut = rl_cut.get_score()
+		bleu4_cut = bleu_cut.get_score()
+		rougel_gt_cut = rl_gt_cut.get_score()
+		bleu4_gt_cut = bleu_gt_cut.get_score()
+		rougel_org = rl_org.get_score()
+		bleu4_org = bleu_org.get_score()
+		bleu_rouge = {'Rouge-L[cut]': rougel_cut,
+					  'Bleu-4[cut]': bleu4_cut,
+					  'Rouge-L[gt_cut]': rougel_gt_cut,
+					  'Bleu-4[gt_cut]': bleu4_gt_cut,
+					  'Rouge-L[org]': rougel_org,
+					  'Bleu-4[org]': bleu4_org
 					  }
 
 		if result_dir is not None and result_prefix is not None:
@@ -648,34 +688,47 @@ class RCModel(object):
 		# this average loss is invalid on test set, since we don't have true start_id and end_id
 		ave_mrl = 1.0 * total_mrl / total_num
 		ave_pointer_loss = 1.0 * total_pointer_loss / total_num
+		ave_ans_acc = 1.0 * total_ans_acc / total_num
+		return ave_mrl, ave_pointer_loss, ave_ans_acc, bleu_rouge
 
-		return ave_mrl, ave_pointer_loss, bleu_rouge
-
-	def find_best_answer(self, sample, start_probs, end_probs, passage_len=None):
+	def find_best_answer(self, sample, prob_matrix, ans_inter_prob, passage_len=None):
 		"""
 		Finds the best answer with the maximum start_prob * end_prob from a single passage
 		"""
 		if passage_len is None:
-			passage_len = len(start_probs)
+			passage_len = len(sample['article_tokens'])
 		else:
-			passage_len = min(len(start_probs), passage_len)
-		best_start, best_end, max_prob = -1, -1, 0
-		for start_idx in range(passage_len):
-			for ans_len in range(1, passage_len - start_idx):
-				end_idx = start_idx + ans_len - 1
-				if end_idx >= passage_len:
-					continue
-				prob = start_probs[start_idx] * end_probs[end_idx]
-				if prob > max_prob:
-					best_start = start_idx
-					best_end = end_idx
-					max_prob = prob
+			passage_len = min(len(sample['article_tokens']), passage_len)
+		pred_ans_inter = int(np.argmax(ans_inter_prob))
+		pred_ans_inter_prob = ans_inter_prob[pred_ans_inter]
 
-		best_answer = ''.join(
-			sample['article_tokens'][best_start: best_end + 1])
-		return best_answer
+		# upper
+		prob_matrix = np.triu(prob_matrix, 0)
 
-	# return (best_start, best_end), max_prob
+		pred_start_origin = np.argmax(np.max(prob_matrix, axis=1), axis=0)
+		pred_end_origin = min(np.argmax(np.max(prob_matrix, axis=0), axis=0), passage_len - 1)
+
+		matrix = prob_matrix
+		if len(sample['answer_tokens']) < self.ans_len_inter_size * self.ans_inter_num:
+			matrix = np.triu(prob_matrix, k=max(0, len(sample['answer_tokens']) - self.ans_cut_range))
+			matrix = np.tril(matrix, k=len(sample['answer_tokens']) + self.ans_cut_range)
+
+		pred_start_gt_cut = np.argmax(np.max(matrix, axis=1), axis=0)
+		pred_end_gt_cut = min(np.argmax(np.max(matrix, axis=0), axis=0), passage_len - 1)
+
+		if pred_ans_inter < self.ans_inter_num - 1 and pred_ans_inter_prob >= self.ans_cut_prob_thresh:
+			pred_ans_len = self.ans_len_inter_size * (pred_ans_inter + 1)
+
+			prob_matrix = np.triu(prob_matrix, k=max(0, pred_ans_len - self.ans_cut_range))
+			prob_matrix = np.tril(prob_matrix, k=pred_ans_len + self.ans_cut_range)
+
+		pred_start_cut = np.argmax(np.max(prob_matrix, axis=1), axis=0)
+		pred_end_cut = min(np.argmax(np.max(prob_matrix, axis=0), axis=0), passage_len - 1)
+
+		best_answer_origin = ''.join(sample['article_tokens'][pred_start_origin: pred_end_origin + 1])
+		best_answer_cut = ''.join(sample['article_tokens'][pred_start_cut: pred_end_cut + 1])
+		best_answer_gt_cut = ''.join(sample['article_tokens'][pred_start_gt_cut: pred_end_gt_cut + 1])
+		return best_answer_origin, best_answer_cut, best_answer_gt_cut
 
 	def save(self, model_dir, model_prefix):
 		"""

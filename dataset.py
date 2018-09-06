@@ -314,8 +314,7 @@ class MilitaryAiDataset(object):
 		for sample in batch_data['raw_data']:
 			if 'answer_tokens' in sample and len(sample['answer_tokens']):
 				batch_data['answer_inter'].append(
-					max(len(sample['answer_tokens']),
-						self.ans_max_token_len - self.ans_len_inter_size) // self.ans_len_inter_size)
+					min(max(0, len(sample['answer_tokens']) - 1), self.ans_max_token_len) // self.ans_len_inter_size)
 				batch_data['start_id'].append(sample['answer_token_start'])
 				batch_data['end_id'].append(sample['answer_token_end'])
 			else:

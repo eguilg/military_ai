@@ -115,11 +115,12 @@ def evaluate(args, cfg):
 	rc_model.restore(model_dir=cfg.model_dir, model_prefix=cfg.algo + args.suffix)
 	logger.info('Evaluating the model on dev set...')
 	dev_batches = mai_data.gen_mini_batches('dev', cfg.batch_size, shuffle=False)
-	dev_loss, dev_main_loss, dev_bleu_rouge = rc_model.evaluate(
+	eval_mrl, eval_pointer_loss, eval_ans_acc, bleu_rouge = rc_model.evaluate(
 		dev_batches, result_dir=cfg.result_dir, result_prefix='dev.predicted')
-	logger.info('Loss on dev set: {}'.format(dev_main_loss))
-	logger.info('Result on dev set: {}'.format(dev_bleu_rouge))
-	logger.info('Predicted answers are saved to {}'.format(os.path.join(cfg.result_dir)))
+	logger.info('Dev eval mrl {}'.format(eval_mrl))
+	logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
+	logger.info('Dev eval ans len acc: {}'.format(eval_ans_acc))
+	logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 
 def predict(args, cfg):
