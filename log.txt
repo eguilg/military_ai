@@ -1,5 +1,0 @@
-algo	filter	bs	wiqB		qtype	rouge	bleu
-BI	3	32	N		N	0.8704	0.655882
-BI	10	32	be_fuse		N	0.8718	0.713686
-BI	10	32	be_fuse		10	0.8788  0.73??
-BI	10	32	be_fuse		10			new preprocess & big dict 

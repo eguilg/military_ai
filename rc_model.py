@@ -253,12 +253,12 @@ class RCModel(object):
 		Self attention layer
 		"""
 		with tf.variable_scope('self_att'):
-			if self.algo == 'MLSTM':
-				self_att_layer = MatchLSTMLayer(self.hidden_size)
-			elif self.algo == 'BIDAF':
-				self_att_layer = AttentionFlowMatchLayer(self.hidden_size)
-			else:
-				raise NotImplementedError('The algorithm {} is not implemented.'.format(self.algo))
+			# if self.algo == 'MLSTM':
+			# 	self_att_layer = MatchLSTMLayer(self.hidden_size)
+			# elif self.algo == 'BIDAF':
+			self_att_layer = AttentionFlowMatchLayer(self.hidden_size)
+			# else:
+			# 	raise NotImplementedError('The algorithm {} is not implemented.'.format(self.algo))
 			self.self_att_p_encodes, _ = self_att_layer.match(self.match_p_encodes, self.match_p_encodes,
 															  self.p_t_length, self.p_t_length)
 			if self.use_dropout:
@@ -349,16 +349,16 @@ class RCModel(object):
 
 		if self.loss_type == 'pointer':
 			self.mrl = tf.constant(0, dtype=tf.float32)
-			self.loss = self.pointer_loss + 0.1 * self.type_loss
+			self.loss = self.pointer_loss + 0.15 * self.type_loss
 		elif self.loss_type == 'mrl_mix':
 			self.mrl = self.mrl_mix
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.15 * self.type_loss
 		elif self.loss_type == 'mrl_soft':
 			self.mrl = self.mrl_soft
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.15 * self.type_loss
 		elif self.loss_type == 'mrl_hard':
 			self.mrl = self.mrl_hard
-			self.loss = self.mrl + 0.1 * self.type_loss
+			self.loss = self.mrl + 0.15 * self.type_loss
 		else:
 			assert 0 != 0
 
@@ -430,7 +430,6 @@ class RCModel(object):
 
 						 self.dropout_keep_prob: dropout_keep_prob}
 			if self.use_char_emb:
-				print('aaaaaaaaaaaaaaaaaaaaaaa')
 				feed_dict.update(
 					{self.p_c: batch['article_char_ids'],
 					 self.q_c: batch['question_char_ids'],

@@ -18,7 +18,10 @@ mlstm_1_cfg = mlstm_config.config_1
 mlstm_2_cfg = mlstm_config.config_2
 
 # setting current config
-cur_cfg = bidaf_1_cfg
+# cur_cfg = bidaf_1_cfg
+# cur_cfg = bidaf_2_cfg
+cur_cfg = mlstm_1_cfg
+# cur_cfg = mlstm_2_cfg
 
 def parse_args(cfg):
 	"""
