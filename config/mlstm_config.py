@@ -5,7 +5,7 @@ from config import base_config
 class ConfigMatchLSTM1(base_config.ConfigBase):
 	# model
 	algo = 'MLSTM'
-	suffix = '_h150'
+	suffix = '_1'
 
 	# model
 	hidden_size = 150
@@ -17,7 +17,7 @@ class ConfigMatchLSTM1(base_config.ConfigBase):
 class ConfigMatchLSTM2(base_config.ConfigBase):
 	# model
 	algo = 'MLSTM'
-	suffix = '_h100'
+	suffix = '_2'
 
 	# model
 	hidden_size = 100

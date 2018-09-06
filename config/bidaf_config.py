@@ -5,7 +5,7 @@ from config import base_config
 class ConfigBidaf1(base_config.ConfigBase):
 	# model
 	algo = 'BIDAF'
-	suffix = '_h200'
+	suffix = '_1'
 
 	# model
 	hidden_size = 200
@@ -21,7 +21,7 @@ class ConfigBidaf1(base_config.ConfigBase):
 class ConfigBidaf2(base_config.ConfigBase):
 	# model
 	algo = 'BIDAF'
-	suffix = '_h150'
+	suffix = '_2'
 
 	# model
 	hidden_size = 150
