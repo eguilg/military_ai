@@ -5,7 +5,7 @@ bidaf_1_mrl_soft,,,
 Bidaf_2,,,
 bidaf_2_mrl_mix,,,
 bidaf_2_mrl_soft,,,
-Mlstm_1,,,
+Mlstm_1,12800,0.885,0.7001
 mlstm_1_mrl_mix,,,
 Mlstm_1_rnrl_soft,,,
 Mlstm_2,,,
