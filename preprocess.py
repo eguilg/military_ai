@@ -1,22 +1,33 @@
 # coding = utf-8
 import json
+import logging
 import multiprocessing as mp
 import os
 import re
 from functools import partial
+from pyltp import Segmentor, Postagger
 
 import jieba
 import jieba.posseg as pseg
 import numpy as np
 import pandas as pd
-import logging
-from utils.rouge import RougeL
+
 from config import base_config
+from utils.rouge import RougeL
+
 cfg = base_config.config
-jieba_big_dict_path = './data/embedding/dict.txt.big'
-if os.path.isfile(jieba_big_dict_path):
-	jieba.set_dictionary(jieba_big_dict_path)
-jieba.setLogLevel(logging.INFO)
+ltp_seg = None
+ltp_pos = None
+if cfg.cut_word_method == 'jieba':
+	if os.path.isfile(cfg.jieba_big_dict_path):
+		jieba.set_dictionary(cfg.jieba_big_dict_path)
+	jieba.setLogLevel(logging.INFO)
+elif cfg.cut_word_method == 'pyltp':
+	ltp_seg = Segmentor()
+	ltp_seg.load(cfg.pyltp_cws_model_path)
+	ltp_pos = Postagger()
+	ltp_pos.load(cfg.pyltp_pos_model_path)
+
 
 def trans_to_df(raw_data_path):
 	"""
@@ -111,13 +122,14 @@ def clean_text(article_df: pd.DataFrame, qa_df: pd.DataFrame):
 	return article_df, qa_df
 
 
-def _apply_cut(df, col):
+def _apply_cut_jieba(df, col):
 	def _cut(row):
 		"""
 		cut the sentences into tokens
 		:param row:
 		:return:
 		"""
+
 		cut_res = pseg.lcut(row, HMM=False)
 		new_row = pd.Series()
 		new_row['tokens'] = [res.word for res in cut_res]
@@ -128,11 +140,35 @@ def _apply_cut(df, col):
 	return sentence_cut
 
 
+def _apply_cut_pyltp(df, col):
+	def _cut(row):
+		"""
+		cut the sentences into tokens
+		:param row:
+		:return:
+		"""
+		cut_res = ltp_seg.segment(row)
+		new_row = pd.Series()
+		new_row['tokens'] = list(cut_res)
+		pos_res = ltp_pos.postag(new_row['tokens'])
+		new_row['flags'] = list(pos_res)
+		return new_row
+
+	sentence_cut = df[col].apply(_cut)
+	return sentence_cut
+
+
 def parallel_cut(df, col):
 	n_cpu = mp.cpu_count()
 	with mp.Pool(processes=n_cpu) as p:
 		split_dfs = np.array_split(df, n_cpu)
-		pool_results = p.map(partial(_apply_cut, col=col), split_dfs)
+
+		if cfg.cut_word_method == 'jieba':
+			pool_results = p.map(partial(_apply_cut_jieba, col=col), split_dfs)
+		elif cfg.cut_word_method == 'pyltp':
+			pool_results = p.map(partial(_apply_cut_pyltp, col=col), split_dfs)
+		else:
+			pool_results = p.map(partial(_apply_cut_jieba, col=col), split_dfs)
 
 	# merging parts processed by different processes
 	res = pd.concat(pool_results, axis=0)
@@ -203,7 +239,10 @@ def _apply_sample_article(df: pd.DataFrame, article_tokens_col, article_flags_co
 				if len(cur_s) >= 2:
 					sentences.append(cur_s)
 					sentences_f.append(cur_s_f)
-					rl.add_inst(''.join(cur_s), question)
+					cur_s_str = ''.join(cur_s)
+					rl.add_inst(cur_s_str, question)
+					if rl.p_scores[-1] == 1.0:
+						rl.r_scores[-1] = 1.0
 				cur_s, cur_s_f = [], []
 				continue
 
@@ -215,37 +254,33 @@ def _apply_sample_article(df: pd.DataFrame, article_tokens_col, article_flags_co
 			if i >= len(sentences):
 				break
 			pos = arg_sorted[i]
-			if pos in [0, 1, len(sentences) - 1]:
+			if pos in [0, 1, len(sentences) - 1, len(sentences) - 2]:
 				continue
 			score = scores[pos]
-			nb_score = score
-			fnb_score = 0.5 * score
-			ffnb_score = 0.25 * score
-			block_scores = np.array([fnb_score, nb_score, score, nb_score, fnb_score, ffnb_score])
-			block = s_rank[pos - 2: pos + 4]
+			block_scores = np.array([0.5*score, 0.9*score, score, score, 0.9*score, 0.5*score, 0.4*score])
+			# block_scores = np.array([0.25*score, 0.5*score, score, 0.8*score, 0.64*score, 0.512*score, 0.4096*score])
+			block = s_rank[pos - 2: pos + 5]
 			block_scores = block_scores[:len(block)]
 			block_scores = np.max(np.stack([block_scores, block]), axis=0)
-			s_rank[pos - 2: pos + 4] = block_scores
-
-		cand.extend(sentences[0])
-		cand_f.extend(sentences_f[0])
-		cand.extend(sentences[1])
-		cand_f.extend(sentences_f[1])
-		cand.extend(sentences[-1])
-		cand_f.extend(sentences_f[-1])
+			s_rank[pos - 2: pos + 5] = block_scores
 
 		rank = list(reversed(np.argsort(s_rank)))
+		flag = [0 for i in range(len(sentences))]
+		flag[0], flag[1], flag[-1], flag[-2] = 1, 1, 1, 1
+		cur_len = len(sentences[0]) + len(sentences[1]) + len(sentences[-1]) + len(sentences[-2])
 
 		for pos in rank:
-			if pos in [0, 1, len(sentences) - 1]:
-				continue
-			if s_rank[pos] > 0:
-				cand.extend(sentences[pos])
-				cand_f.extend(sentences_f[pos])
-				if len(cand) > max_token_len:
-					break
+			if cur_len < max_token_len:
+				if s_rank[pos] > 0:
+					flag[pos] = 1
+					cur_len += len(sentences[pos])
 			else:
 				break
+
+		for i in range(len(flag)):
+			if flag[i] != 0:
+				cand.extend(sentences[i])
+				cand_f.extend(sentences_f[i])
 
 		row[article_tokens_col] = cand[:max_token_len]
 		row[article_flags_col] = cand_f[:max_token_len]
@@ -280,7 +315,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 	def _find_golden_span(row, article_tokens_col, question_tokens_col, answer_tokens_col):
 
 		article_tokens = row[article_tokens_col]
-		# question_tokens = row[question_tokens_col]
+		question_tokens = row[question_tokens_col]
 		answer_tokens = row[answer_tokens_col]
 		row['answer_token_start'] = -1
 		row['answer_token_end'] = -1
@@ -288,12 +323,15 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 		row['delta_token_ends'] = []
 		row['delta_rouges'] = []
 		rl = RougeL()
+		rl_q = RougeL()
 		ground_ans = ''.join(answer_tokens).strip()
+		questrin_str = ''.join(question_tokens).strip()
 		len_p = len(article_tokens)
 		len_a = len(answer_tokens)
 		s2 = set(ground_ans)
 		star_spans = []
 		end_spans = []
+		rl_q_r = []
 		for i in range(len_p - len_a + 1):
 			for t_len in range(len_a - 2, len_a + 3):
 				if t_len <= 0 or i + t_len > len_p:
@@ -304,12 +342,26 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 				iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
 				if iou > 0.3:
 					rl.add_inst(cand_ans, ground_ans)
+					if rl.inst_scores[-1] == 1.0:
+						s = max(i - 5, 0)
+						cand_ctx = ''.join(article_tokens[s:i + t_len + 5]).strip()
+						rl_q.add_inst(cand_ctx, questrin_str)
+						rl_q_r.append(rl_q.r_scores[-1])
+					else:
+						rl_q_r.append(0.0)
 					star_spans.append(i)
 					end_spans.append(i + t_len - 1)
 		if len(star_spans) == 0:
 			return row
 		else:
-			best_idx = np.argmax(rl.inst_scores)
+			score = np.array(rl.inst_scores)
+			em_mask = (score == 1.0)
+
+			if em_mask.sum() <= 1:
+				best_idx = np.argmax(rl.inst_scores)
+			else:
+				best_idx = np.argmax(rl_q_r)
+
 			row['answer_token_start'] = star_spans[best_idx]
 			row['answer_token_end'] = end_spans[best_idx]
 			row['delta_token_starts'] = star_spans
@@ -410,13 +462,18 @@ def preprocess_dataset(raw_path):
 
 	adf, qadf = clean_token(adf, qadf)
 
-	sample_df = parallel_sample_article(adf, qadf, cfg.sample_article_len)
+	sample_df = parallel_sample_article(adf, qadf, cfg.article_sample_len)
 
 	sample_df = parallel_find_gold_span(sample_df)
 
 	adf = adf.to_dict(orient='records')
 	qadf = qadf.to_dict(orient='records')
 	sample_df = sample_df.to_dict(orient='records')
+
+	if ltp_pos:
+		ltp_pos.release()
+	if ltp_seg:
+		ltp_seg.release()
 
 	return adf, qadf, sample_df
 
