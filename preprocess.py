@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 import logging
 from utils.rouge import RougeL
-
+from config import base_config
+cfg = base_config.config
 jieba_big_dict_path = './data/embedding/dict.txt.big'
 if os.path.isfile(jieba_big_dict_path):
 	jieba.set_dictionary(jieba_big_dict_path)
@@ -295,7 +296,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 		end_spans = []
 		for i in range(len_p - len_a + 1):
 			for t_len in range(len_a - 2, len_a + 3):
-				if t_len == 0 or i + t_len > len_p:
+				if t_len <= 0 or i + t_len > len_p:
 					continue
 				cand_ans = ''.join(article_tokens[i:i + t_len]).strip()
 				s1 = set(cand_ans)
@@ -409,7 +410,7 @@ def preprocess_dataset(raw_path):
 
 	adf, qadf = clean_token(adf, qadf)
 
-	sample_df = parallel_sample_article(adf, qadf)
+	sample_df = parallel_sample_article(adf, qadf, cfg.sample_article_len)
 
 	sample_df = parallel_find_gold_span(sample_df)
 

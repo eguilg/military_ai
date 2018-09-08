@@ -9,6 +9,7 @@ class ConfigBase:
 	dev_split = 0.1
 	seed = 502
 	qtype_count = 10
+	sample_article_len = 500
 
 	# learning
 	optim = 'adadelta'
@@ -30,7 +31,7 @@ class ConfigBase:
 	root = './'
 
 	train_raw_files = [root + 'data/train/question.json']
-	train_preprocessed_files = [root + 'data/train/question_preprocessed.json']
+	train_preprocessed_files = [root + 'data/train/question_preprocessed_'+str(sample_article_len)+'.json']
 
 	test_raw_files = []
 	test_preprocessed_files = []
