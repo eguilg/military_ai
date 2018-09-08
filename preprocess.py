@@ -246,6 +246,11 @@ def _apply_sample_article(df: pd.DataFrame, article_tokens_col, article_flags_co
 				cur_s, cur_s_f = [], []
 				continue
 
+		if '。' not in ''.join(article_tokens):
+			row[article_tokens_col] = sentences[0]
+			row[article_flags_col] = sentences_f[0]
+			return row
+
 		scores = rl.r_scores
 		s_rank = np.zeros(len(sentences))
 		arg_sorted = list(reversed(np.argsort(scores)))
@@ -254,10 +259,10 @@ def _apply_sample_article(df: pd.DataFrame, article_tokens_col, article_flags_co
 			if i >= len(sentences):
 				break
 			pos = arg_sorted[i]
-			if pos in [0, 1, len(sentences) - 1, len(sentences) - 2]:
-				continue
 			score = scores[pos]
-			block_scores = np.array([0.5*score, 0.9*score, score, score, 0.9*score, 0.5*score, 0.4*score])
+			if pos in [0, 1, len(sentences) - 1, len(sentences) - 2] or score == 0:
+				continue
+			block_scores = np.array([0.5 * score, 0.9 * score, score, score, 0.9 * score, 0.5 * score, 0.4 * score])
 			# block_scores = np.array([0.25*score, 0.5*score, score, 0.8*score, 0.64*score, 0.512*score, 0.4096*score])
 			block = s_rank[pos - 2: pos + 5]
 			block_scores = block_scores[:len(block)]
