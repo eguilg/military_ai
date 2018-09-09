@@ -72,7 +72,7 @@ def clean_text(article_df: pd.DataFrame, qa_df: pd.DataFrame):
 		row = re.sub('[\u3000\t]', ' ', row)
 		row = re.sub('\s{2,}', '', row)
 		row = re.sub('[“”]', '', row)
-		row = re.sub('[\r\n]', '\001', row)
+		row = re.sub('[\r\n]', ' ', row)
 
 		# p_l = re.compile(r'\s+([\u4e00-\u9fa5, ]{1})')
 		# p_r = re.compile(r'([\u4e00-\u9fa5, ]{1})\s+')
@@ -91,7 +91,7 @@ def clean_text(article_df: pd.DataFrame, qa_df: pd.DataFrame):
 		row = re.sub(r'９', '9', row)
 		row = re.sub(r'．', '.', row)
 
-		if row[-1] in '\001。':
+		if row[-1] == '。':
 			row = row[:-1].strip()
 		return row
 
@@ -101,7 +101,7 @@ def clean_text(article_df: pd.DataFrame, qa_df: pd.DataFrame):
 		:param row:
 		:return:
 		"""
-		row['article'] = row['article_title'] + '\001' + row['article_content']
+		row['article'] = row['article_title'] + '。' + row['article_content']
 		return row
 
 	article_df['article_title'] = article_df['article_title'].apply(clean)
@@ -147,9 +147,18 @@ def _apply_cut_pyltp(df, col):
 		:param row:
 		:return:
 		"""
-		cut_res = ltp_seg.segment(row)
+		if '。' in row:
+			cut_res = []
+			row = row.split('。')
+			for idx, s in enumerate(row):
+				s_cut = list(ltp_seg.segment(s))
+				cut_res.extend(s_cut)
+				if idx != len(row) - 1:
+					cut_res.append('。')
+		else:
+			cut_res = list(ltp_seg.segment(row))
 		new_row = pd.Series()
-		new_row['tokens'] = list(cut_res)
+		new_row['tokens'] = cut_res
 		pos_res = ltp_pos.postag(new_row['tokens'])
 		new_row['flags'] = list(pos_res)
 		return new_row
@@ -235,7 +244,7 @@ def _apply_sample_article(df: pd.DataFrame, article_tokens_col, article_flags_co
 			cur_s.append(token)
 			cur_s_f.append(flag)
 
-			if token in '\001。' or idx == len(article_tokens) - 1:
+			if token in '。' or idx == len(article_tokens) - 1:
 				if len(cur_s) >= 2:
 					sentences.append(cur_s)
 					sentences_f.append(cur_s_f)
@@ -336,7 +345,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 		s2 = set(ground_ans)
 		star_spans = []
 		end_spans = []
-		rl_q_r = []
+		rl_q_idx = []
 		for i in range(len_p - len_a + 1):
 			for t_len in range(len_a - 2, len_a + 3):
 				if t_len <= 0 or i + t_len > len_p:
@@ -345,15 +354,14 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 				s1 = set(cand_ans)
 				mlen = max(len(s1), len(s2))
 				iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-				if iou > 0.3:
+				if iou > 0.2:
 					rl.add_inst(cand_ans, ground_ans)
 					if rl.inst_scores[-1] == 1.0:
-						s = max(i - 5, 0)
-						cand_ctx = ''.join(article_tokens[s:i + t_len + 5]).strip()
+						s = max(i - 7, 0)
+						cand_ctx = ''.join(article_tokens[s:i + t_len + 3]).strip()
 						rl_q.add_inst(cand_ctx, questrin_str)
-						rl_q_r.append(rl_q.r_scores[-1])
-					else:
-						rl_q_r.append(0.0)
+						rl_q_idx.append(len(star_spans))
+
 					star_spans.append(i)
 					end_spans.append(i + t_len - 1)
 		if len(star_spans) == 0:
@@ -365,7 +373,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 			if em_mask.sum() <= 1:
 				best_idx = np.argmax(rl.inst_scores)
 			else:
-				best_idx = np.argmax(rl_q_r)
+				best_idx = rl_q_idx[int(np.argmax(rl_q.r_scores))]
 
 			row['answer_token_start'] = star_spans[best_idx]
 			row['answer_token_end'] = end_spans[best_idx]
