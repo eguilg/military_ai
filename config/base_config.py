@@ -10,7 +10,7 @@ class ConfigBase:
 	seed = 502
 	qtype_count = 10
 	article_sample_len = 500
-	cut_word_method = 'pyltp'
+	cut_word_method = 'jieba'
 
 	# learning
 	optim = 'adadelta'

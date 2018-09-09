@@ -354,7 +354,7 @@ def _apply_find_gold_span(sample_df: pd.DataFrame, article_tokens_col, question_
 				s1 = set(cand_ans)
 				mlen = max(len(s1), len(s2))
 				iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-				if iou > 0.2:
+				if iou >= 0.25:
 					rl.add_inst(cand_ans, ground_ans)
 					if rl.inst_scores[-1] == 1.0:
 						s = max(i - 7, 0)
