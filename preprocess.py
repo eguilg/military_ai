@@ -469,15 +469,17 @@ def preprocess_dataset(raw_path):
 	qadf['question_tokens'] = question_cut['tokens']
 	qadf['question_flags'] = question_cut['flags']
 
-	ans_cut = parallel_cut(qadf, 'answer')
-	qadf['answer_tokens'] = ans_cut['tokens']
-	qadf['answer_flags'] = ans_cut['flags']
+	if 'answer' in qadf.columns:
+		ans_cut = parallel_cut(qadf, 'answer')
+		qadf['answer_tokens'] = ans_cut['tokens']
+		qadf['answer_flags'] = ans_cut['flags']
 
 	adf, qadf = clean_token(adf, qadf)
 
 	sample_df = parallel_sample_article(adf, qadf, cfg.article_sample_len)
 
-	sample_df = parallel_find_gold_span(sample_df)
+	if 'answer' in qadf.columns:
+		sample_df = parallel_find_gold_span(sample_df)
 
 	adf = adf.to_dict(orient='records')
 	qadf = qadf.to_dict(orient='records')

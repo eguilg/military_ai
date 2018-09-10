@@ -56,13 +56,13 @@ class MilitaryAiDataset(object):
 		np.random.shuffle(self.total_article_ids)
 		self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * cfg.dev_split)]
 		self.dev_set = list(
-			filter(lambda sample: sample['article_id'] in self.dev_article_ids,
+			filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 				   self.train_set))
 		self.train_set = list(filter(
-			lambda sample: sample['article_id'] not in self.dev_article_ids,
+			lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
 			self.train_set))
 
-	# and sample['answer_token_start'] >= 0
+	#
 	def _load_dataset(self):
 		"""
 		Loads the dataset
