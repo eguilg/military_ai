@@ -12,14 +12,20 @@ class ConfigBase:
 	weight_decay = 0.0
 	batch_size = 32
 	epochs = 15
-	loss_type = 'pointer'
 	qtype_count = 10
+
+	loss_type = 'pointer'
+	# loss_type = 'mrl_mix'
+	# loss_type = 'mrl_soft'
+	# loss_type = 'mrl_hard'
+
+	switch = True
+
 	# model base
 	dropout_keep_prob = 0.8
 	embed_size = 300
 	hidden_size = 150
-	use_char_emb = False
-	use_embe = True
+
 
 	root = './'
 	model_dir = root + 'data/models/'

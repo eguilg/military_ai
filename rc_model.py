@@ -28,7 +28,7 @@ class RCModel(object):
 	Implements the main reading comprehension model.
 	"""
 
-	def __init__(self, token_vocab, flag_vocab, elmo_vocab, cfg):
+	def __init__(self, dataset, cfg):
 
 		# logging
 		self.logger = logging.getLogger("Military AI")
@@ -44,12 +44,19 @@ class RCModel(object):
 		self.weight_decay = cfg.weight_decay
 		self.use_dropout = cfg.dropout_keep_prob < 1
 
+		self.switch = cfg.switch
+
 		self.qtype_count = cfg.qtype_count
 
 		# the vocab
-		self.token_vocab = token_vocab
-		self.flag_vocab = flag_vocab
-		self.elmo_vocab = elmo_vocab
+		self.pyltp_token_vocab = dataset.pyltp_token_vocab
+		self.pyltp_flag_vocab = dataset.pyltp_flag_vocab
+
+		self.jieba_token_vocab = dataset.jieba_token_vocab
+		self.jieba_flag_vocab = dataset.jieba_flag_vocab
+		self.data = dataset
+
+		self.elmo_vocab = dataset.elmo_vocab
 
 		# session info
 		sess_config = tf.ConfigProto()
@@ -113,6 +120,8 @@ class RCModel(object):
 		self.p_pad_len = tf.placeholder(tf.int32)
 		self.q_pad_len = tf.placeholder(tf.int32)
 
+		self.use_jieba = tf.placeholder(tf.bool, shape=[])
+
 		self.dropout_keep_prob = tf.placeholder(tf.float32)
 		self.dropout = tf.placeholder_with_default(0.0, (), name="dropout")
 
@@ -121,26 +130,54 @@ class RCModel(object):
 		The embedding layer, question and passage share embeddings
 		"""
 		with tf.variable_scope('token_embedding'):
-			with tf.device('/cpu:0'):
-				self.token_embeddings = tf.get_variable(
-					'token_embedding',
-					shape=(self.token_vocab.size(), self.token_vocab.embed_dim),
-					initializer=tf.constant_initializer(self.token_vocab.embeddings),
-					trainable=False
-				)
-			self.p_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.p_t)
-			self.q_t_emb = tf.nn.embedding_lookup(self.token_embeddings, self.q_t)
+			with tf.variable_scope('jieba'):
+				with tf.device('/cpu:0'):
+					self.jieba_token_embeddings = tf.get_variable(
+						'token_embedding',
+						shape=(self.jieba_token_vocab.size(), self.jieba_token_vocab.embed_dim),
+						initializer=tf.constant_initializer(self.jieba_token_vocab.embeddings),
+						trainable=False
+					)
+			with tf.variable_scope('pyltp'):
+				with tf.device('/cpu:0'):
+					self.pyltp_token_embeddings = tf.get_variable(
+						'token_embedding',
+						shape=(self.pyltp_token_vocab.size(), self.pyltp_token_vocab.embed_dim),
+						initializer=tf.constant_initializer(self.pyltp_token_vocab.embeddings),
+						trainable=False
+					)
+			self.p_t_emb = tf.cond(self.use_jieba,
+								   true_fn=lambda: tf.nn.embedding_lookup(self.jieba_token_embeddings, self.p_t),
+								   false_fn=lambda: tf.nn.embedding_lookup(self.pyltp_token_embeddings, self.p_t))
+
+			self.q_t_emb = tf.cond(self.use_jieba,
+								   true_fn=lambda: tf.nn.embedding_lookup(self.jieba_token_embeddings, self.q_t),
+								   false_fn=lambda: tf.nn.embedding_lookup(self.pyltp_token_embeddings, self.q_t))
 
 		with tf.variable_scope('flag_embedding'):
-			with tf.device('/cpu:0'):
-				self.flag_embeddings = tf.get_variable(
-					'flag_embedding',
-					shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
-					initializer=tf.constant_initializer(self.flag_vocab.embeddings),
-					trainable=False
-				)
-			p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
-			q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
+			with tf.variable_scope('jieba'):
+				with tf.device('/cpu:0'):
+					self.jieba_flag_embeddings = tf.get_variable(
+						'flag_embedding',
+						shape=(self.jieba_flag_vocab.size(), self.jieba_flag_vocab.embed_dim),
+						initializer=tf.constant_initializer(self.jieba_flag_vocab.embeddings),
+						trainable=False
+					)
+			with tf.variable_scope('pyltp'):
+				with tf.device('/cpu:0'):
+					self.pyltp_flag_embeddings = tf.get_variable(
+						'flag_embedding',
+						shape=(self.pyltp_flag_vocab.size(), self.pyltp_flag_vocab.embed_dim),
+						initializer=tf.constant_initializer(self.pyltp_flag_vocab.embeddings),
+						trainable=False
+					)
+			p_f_emb = tf.cond(self.use_jieba,
+							  true_fn=lambda: tf.nn.embedding_lookup(self.jieba_flag_embeddings, self.p_f),
+							  false_fn=lambda: tf.nn.embedding_lookup(self.pyltp_flag_embeddings, self.p_f))
+
+			q_f_emb = tf.cond(self.use_jieba,
+							  true_fn=lambda: tf.nn.embedding_lookup(self.jieba_flag_embeddings, self.q_f),
+							  false_fn=lambda: tf.nn.embedding_lookup(self.pyltp_flag_embeddings, self.q_f))
 
 		with tf.variable_scope('elmo_embedding'):
 			with tf.device('/cpu:0'):
@@ -357,22 +394,24 @@ class RCModel(object):
 		self.train_op = self.optimizer.minimize(self.loss, global_step=global_step)
 
 	def _train_epoch(self, train_batches, dropout_keep_prob,
-					 data, max_rouge_l, n_ep, save_dir, save_prefix):
+					 max_rouge_l, save_dir, save_prefix):
 		"""
 		Trains the model for a single epoch.
 		Args:
 			train_batches: iterable batch data for training
 			dropout_keep_prob: float value indicating dropout keep probability
 		"""
+		cur_dataset_fn = lambda use_jieba: 'jieba' if use_jieba else 'pyltp'
 		total_num, total_mrl, total_pointer_loss = 0, 0, 0
 		flag = 1
 		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss = 50, 1000, 0, 0
 		for bitx, batch in enumerate(train_batches, 1):
-			if max_rouge_l >= 0.88:
+
+			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.88:
 				flag = 2
-			if max_rouge_l >= 0.89:
+			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.89:
 				flag = 3
-			if max_rouge_l >= 0.895:
+			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.895:
 				flag = 4
 			feed_dict = {self.p_t: batch['article_token_ids'],
 						 self.q_t: batch['question_token_ids'],
@@ -395,6 +434,8 @@ class RCModel(object):
 						 self.delta_span_idxs: batch['delta_span_idxs'],
 						 self.delta_rouges: batch['delta_rouges'],
 
+						 self.use_jieba: self.data.use_jieba,
+
 						 self.dropout_keep_prob: dropout_keep_prob}
 
 			_, mrl, pointer_loss, type_loss = self.sess.run(
@@ -414,25 +455,26 @@ class RCModel(object):
 				n_batch_pointer_loss = 0
 			if (eval_every_n_batch // flag) > 0 and bitx > 0 and bitx % (eval_every_n_batch // flag) == 0:
 				self.logger.info('Evaluating the model after batch {}'.format(bitx))
-				if data.dev_set is not None:
-					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
+				if self.data.dev_set is not None:
+					eval_batches = self.data.gen_mini_batches('dev', batch_size, shuffle=False)
 					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
 					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
 					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
-					if bleu_rouge['Rouge-L'] > max_rouge_l:
+					rouge_key = cur_dataset_fn(self.data.use_jieba)
+					if bleu_rouge['Rouge-L'] > max_rouge_l[rouge_key]:
 						if bleu_rouge['Rouge-L'] < 0.885:
-							self.save(save_dir, save_prefix + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
+							self.save(save_dir, save_prefix + '_' + rouge_key + str(round(bleu_rouge['Rouge-L'], 4)))
 						else:
 							self.save(save_dir, save_prefix)
-						max_rouge_l = bleu_rouge['Rouge-L']
+						max_rouge_l[rouge_key] = bleu_rouge['Rouge-L']
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 
 		return 1.0 * total_mrl / total_num, 1.0 * total_pointer_loss / total_num, max_rouge_l
 
-	def train(self, data, epochs, batch_size, save_dir, save_prefix,
+	def train(self, epochs, batch_size, save_dir, save_prefix,
 			  dropout_keep_prob=1.0, evaluate=True):
 		"""
 		Train the model with data
@@ -445,35 +487,41 @@ class RCModel(object):
 			dropout_keep_prob: float value indicating dropout keep probability
 			evaluate: whether to evaluate the model on test set after each epoch
 		"""
-		max_rouge_l = 0
+		max_rouge_l = {
+			'jieba': 0.0,
+			'pyltp': 0.0
+		}
+		cur_dataset_fn = lambda use_jieba: 'jieba' if use_jieba else 'pyltp'
 		for epoch in tqdm(range(1, epochs + 1)):
 			self.logger.info('Training the model for epoch {}'.format(epoch))
-			train_batches = data.gen_mini_batches('train', batch_size, shuffle=True)
-			train_mrl, train_pointer_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob, data,
-																		   max_rouge_l, epoch,
-																		   save_dir, save_prefix)
+			train_batches = self.data.gen_mini_batches('train', batch_size, shuffle=True)
+			train_mrl, train_pointer_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob,
+																		   max_rouge_l, save_dir, save_prefix)
 			self.logger.info(
 				'Average train loss for epoch {} is MRL Loss: {}, Pointer Loss: {}'.format(epoch, train_mrl,
 																						   train_pointer_loss))
-
 			if evaluate:
 				self.logger.info('Evaluating the model after epoch {}'.format(epoch))
-				if data.dev_set is not None:
-					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
+				if self.data.dev_set is not None:
+					eval_batches = self.data.gen_mini_batches('dev', batch_size, shuffle=False)
 					eval_mrl, eval_pointer_loss, bleu_rouge = self.evaluate(eval_batches)
 					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
 					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
-
-					if bleu_rouge['Rouge-L'] > max_rouge_l:
+					rouge_key = cur_dataset_fn(self.data.use_jieba)
+					if bleu_rouge['Rouge-L'] > max_rouge_l[rouge_key]:
 						if bleu_rouge['Rouge-L'] < 0.885:
-							self.save(save_dir, save_prefix + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
+							self.save(save_dir, save_prefix + '_' + rouge_key + str(round(bleu_rouge['Rouge-L'], 4)))
 						else:
 							self.save(save_dir, save_prefix)
+						max_rouge_l[rouge_key] = bleu_rouge['Rouge-L']
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 			else:
 				self.save(save_dir, save_prefix + '_' + str(epoch))
+
+			if self.switch:
+				self.data.switch()
 
 	def evaluate(self, eval_batches, result_dir=None, result_prefix=None):
 		"""
@@ -511,6 +559,8 @@ class RCModel(object):
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
 						 self.delta_rouges: batch['delta_rouges'],
+
+						 self.use_jieba: self.data.use_jieba,
 
 						 self.dropout_keep_prob: 1.0}
 
@@ -629,6 +679,8 @@ class RCModel(object):
 						 self.delta_ends: batch['delta_token_ends'],
 						 self.delta_span_idxs: batch['delta_span_idxs'],
 						 self.delta_rouges: batch['delta_rouges'],
+
+						 self.use_jieba: self.data.use_jieba,
 
 						 self.dropout_keep_prob: 1.0}
 

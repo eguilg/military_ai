@@ -24,12 +24,11 @@ pyltp_cfg = pyltp_data_config.config
 
 # setting current config
 cur_model_cfg = bidaf_1_cfg
+
+
 # cur_cfg = bidaf_2_cfg
 # cur_cfg = mlstm_1_cfg
 # cur_cfg = mlstm_2_cfg
-
-cur_data_cfg = pyltp_cfg
-# cur_data_cfg = jieba_cfg
 
 
 def parse_args(model_cfg):
@@ -55,104 +54,96 @@ def parse_args(model_cfg):
 	return parser.parse_args()
 
 
-def prepare(args, data_cfg):
+def prepare(args, pyltp_cfg, jieba_cfg):
 	"""
 	checks data, creates the directories, prepare the vocabulary and embeddings
 	"""
 	logger = logging.getLogger("Military AI")
 
-	prepare_data(data_cfg)
+	prepare_data(pyltp_cfg)
+	prepare_data(jieba_cfg)
 
 	logger.info('Done with preparing!')
 
 
-def train(args, data_cfg, model_cfg):
+def train(args, pylpt_cfg, jieba_cfg, model_cfg):
 	"""
 	trains the reading comprehension model
 	"""
 	logger = logging.getLogger("Military AI")
-	logger.info('Load data_set and vocab...')
+	logger.info('Load data set and vocab...')
 
-	mai_data = MilitaryAiDataset(data_cfg)
+	mai_data = MilitaryAiDataset(pylpt_cfg, jieba_cfg)
 
 	logger.info('Initialize the model...')
-	rc_model = RCModel(mai_data.token_vocab, mai_data.flag_vocab, mai_data.elmo_vocab, model_cfg)
+	rc_model = RCModel(mai_data, model_cfg)
 	if args.is_restore or args.restore_suffix:
 		restore_prefix = model_cfg.algo + args.suffix
 		if args.restore_suffix:
 			restore_prefix = model_cfg.algo + args.restore_suffix
 		rc_model.restore(model_dir=model_cfg.model_dir, model_prefix=restore_prefix)
 	logger.info('Training the model...')
-	rc_model.train(mai_data, model_cfg.epochs, model_cfg.batch_size, save_dir=model_cfg.model_dir,
+	rc_model.train(model_cfg.epochs, model_cfg.batch_size, save_dir=model_cfg.model_dir,
 				   save_prefix=model_cfg.algo
 							   + model_cfg.suffix + '_'
 							   + model_cfg.loss_type + '_'
-							   + data_cfg.cut_word_method +
-							   str(data_cfg.cv),
+							   + str(pyltp_cfg.cv),
 				   dropout_keep_prob=model_cfg.dropout_keep_prob)
 	logger.info('Done with model training!')
 
 
-def evaluate(args, data_cfg, model_cfg):
+def evaluate(args, pylpt_cfg, jieba_cfg, model_cfg):
 	"""
 	evaluate the trained model on dev files
 	"""
 	logger = logging.getLogger("Military AI")
-	logger.info('Load data_set and vocab...')
-	mai_data = MilitaryAiDataset(data_cfg)
+	logger.info('Load data set and vocab...')
+	mai_data = MilitaryAiDataset(pylpt_cfg, jieba_cfg)
 
-	logger.info('Assigning embeddings...')
+	if args.restore_suffix:
+		restore_prefix = args.restore_suffix
+	else:
+		restore_prefix = model_cfg.algo + model_cfg.suffix + '_' + model_cfg.loss_type + '_' + str(pyltp_cfg.cv)
 
 	logger.info('Restoring the model...')
-	rc_model = RCModel(mai_data.token_vocab, mai_data.flag_vocab, mai_data.elmo_vocab, model_cfg)
+	rc_model = RCModel(mai_data, model_cfg)
 	rc_model.restore(model_dir=model_cfg.model_dir,
-					 model_prefix=model_cfg.algo
-								  + model_cfg.suffix + '_'
-								  + model_cfg.loss_type + '_'
-								  + data_cfg.cut_word_method +
-								  str(data_cfg.cv), )
+					 model_prefix=restore_prefix)
 	logger.info('Evaluating the model on dev set...')
 	dev_batches = mai_data.gen_mini_batches('dev', model_cfg.batch_size, shuffle=False)
 	dev_loss, dev_main_loss, dev_bleu_rouge = rc_model.evaluate(
 		dev_batches, result_dir=model_cfg.result_dir,
-		result_prefix=model_cfg.algo
-					  + model_cfg.suffix + '_'
-					  + model_cfg.loss_type + '_'
-					  + data_cfg.cut_word_method +
-					  str(data_cfg.cv))
+		result_prefix=restore_prefix)
 	logger.info('Loss on dev set: {}'.format(dev_main_loss))
 	logger.info('Result on dev set: {}'.format(dev_bleu_rouge))
 	logger.info('Predicted answers are saved to {}'.format(os.path.join(model_cfg.result_dir)))
 
 
-def predict(args, data_cfg, model_cfg):
+def predict(args, pyltp_cfg, jieba_cfg, model_cfg):
 	"""
 	predicts answers for test files
 	"""
 	logger = logging.getLogger("Military AI")
-	logger.info('Load data_set and vocab...')
-	mai_data = MilitaryAiDataset(data_cfg, test=True)
-	logger.info('Assigning embeddings...')
+	logger.info('Load data set and vocab...')
+	mai_data = MilitaryAiDataset(pyltp_cfg, jieba_cfg, test=True)
+
+	if args.restore_suffix:
+		restore_prefix = args.restore_suffix
+	else:
+		restore_prefix = model_cfg.algo + model_cfg.suffix + '_' + model_cfg.loss_type + '_' + str(pyltp_cfg.cv)
 
 	logger.info('Restoring the model...')
-	rc_model = RCModel(mai_data.token_vocab, mai_data.flag_vocab, mai_data.elmo_vocab, model_cfg)
+	rc_model = RCModel(mai_data, model_cfg)
 	rc_model.restore(model_dir=model_cfg.model_dir,
-					 model_prefix=model_cfg.algo
-								  + model_cfg.suffix + '_'
-								  + model_cfg.loss_type + '_'
-								  + data_cfg.cut_word_method +
-								  str(data_cfg.cv), )
+					 model_prefix=restore_prefix)
 	logger.info('Predicting answers for test set...')
 	test_batches = mai_data.gen_mini_batches('test', model_cfg.batch_size, shuffle=False)
 	rc_model.predict_for_ensemble(test_batches,
 								  result_dir=model_cfg.result_dir,
-								  result_prefix=model_cfg.algo
-												+ model_cfg.suffix + '_'
-												+ model_cfg.loss_type + '_'
-												+ data_cfg.cut_word_method)
+								  result_prefix=restore_prefix)
 
 
-def run(data_cfg, model_cfg):
+def run(pylpt_cfg, jieba_cfg, model_cfg):
 	"""
 	Prepares and runs the whole system.
 	"""
@@ -161,8 +152,8 @@ def run(data_cfg, model_cfg):
 	logger = logging.getLogger("Military AI")
 	logger.setLevel(logging.INFO)
 	formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-	if data_cfg.log_path:
-		file_handler = logging.FileHandler(data_cfg.log_path)
+	if pylpt_cfg.log_path:
+		file_handler = logging.FileHandler(pylpt_cfg.log_path)
 		file_handler.setLevel(logging.INFO)
 		file_handler.setFormatter(formatter)
 		logger.addHandler(file_handler)
@@ -180,14 +171,14 @@ def run(data_cfg, model_cfg):
 	os.environ["CUDA_VISIBLE_DEVICES"] = model_cfg.gpu
 
 	if args.prepare:
-		prepare(args, data_cfg)
+		prepare(args, pyltp_cfg, jieba_cfg)
 	if args.train:
-		train(args, data_cfg, model_cfg)
+		train(args, pyltp_cfg, jieba_cfg, model_cfg)
 	if args.evaluate:
-		evaluate(args, data_cfg, model_cfg)
+		evaluate(args, pyltp_cfg, jieba_cfg, model_cfg)
 	if args.predict:
-		predict(args, data_cfg, model_cfg)
+		predict(args, pyltp_cfg, jieba_cfg, model_cfg)
 
 
 if __name__ == '__main__':
-	run(cur_data_cfg, cur_model_cfg)
+	run(pyltp_cfg, jieba_cfg, cur_model_cfg)

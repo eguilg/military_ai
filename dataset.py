@@ -15,30 +15,53 @@ class MilitaryAiDataset(object):
 	This module implements the data loading and preprocessing steps
 	"""
 
-	def __init__(self, cfg, test=False):
+	def __init__(self, pyltp_cfg, jieba_cfg, use_jieba=False, test=False):
 		self.logger = logging.getLogger("Military AI")
 		self.logger.setLevel(logging.INFO)
 		self.train_set, self.test_set = [], []
 
-		self.train_raw_path = cfg.train_raw_file
-		self.test_raw_path = cfg.test_raw_file
+		self.train_raw_path = pyltp_cfg.train_raw_file
+		self.test_raw_path = pyltp_cfg.test_raw_file
+		self.use_jieba = use_jieba
+		self.pyltp_cfg = pyltp_cfg
+		self.jieba_cfg = jieba_cfg
+		self.pyltp_train_preprocessed_path = pyltp_cfg.train_preprocessed_file
+		self.pyltp_test_preprocessed_path = pyltp_cfg.test_preprocessed_file
+		self.pyltp_flag_embed_path = pyltp_cfg.flag_embed_file
+		self.pyltp_token_embed_path = pyltp_cfg.token_embed_file
 
-		self.train_preprocessed_path = cfg.train_preprocessed_file
-		self.test_preprocessed_path = cfg.test_preprocessed_file
-		self.flag_embed_path = cfg.flag_embed_file
-		self.token_embed_path = cfg.token_embed_file
-		self.elmo_vocab_path = cfg.elmo_dict_file
-		self.elmo_embed_path = cfg.elmo_embed_file
-		self.seed = cfg.seed
-		self.dev_split = cfg.dev_split
-		self.cv = cfg.cv
+		self.jieba_train_preprocessed_path = jieba_cfg.train_preprocessed_file
+		self.jieba_test_preprocessed_path = jieba_cfg.test_preprocessed_file
+		self.jieba_flag_embed_path = jieba_cfg.flag_embed_file
+		self.jieba_token_embed_path = jieba_cfg.token_embed_file
+
+		self.elmo_vocab_path = pyltp_cfg.elmo_dict_file
+		self.elmo_embed_path = pyltp_cfg.elmo_embed_file
+		self.seed = pyltp_cfg.seed
+		self.dev_split = pyltp_cfg.dev_split
+		self.cv = pyltp_cfg.cv
 
 		self.is_test = test
+
+		if use_jieba:
+			self.train_preprocessed_path = self.jieba_train_preprocessed_path
+			self.test_preprocessed_path = self.jieba_test_preprocessed_path
+		else:
+			self.train_preprocessed_path = self.pyltp_train_preprocessed_path
+			self.test_preprocessed_path = self.pyltp_test_preprocessed_path
 
 		self._load_dataset()
 		self._load_embeddings()
 		# self._convert_to_ids()
 		self._get_vocabs()
+
+		if use_jieba:
+			self.flag_vocab = self.jieba_flag_vocab
+			self.token_vocab = self.jieba_token_vocab
+		else:
+			self.flag_vocab = self.pyltp_flag_vocab
+			self.token_vocab = self.pyltp_token_vocab
+
 		self._convert_to_ids()
 
 		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
@@ -74,14 +97,12 @@ class MilitaryAiDataset(object):
 			try:
 				self.logger.info('Loading preprocessed train files...')
 				self.train_set = self._load_from_preprocessed(self.train_preprocessed_path)
-
 			except FileNotFoundError:
 				self.logger.info('Preprocessed train file not found !')
 		else:
 			try:
 				self.logger.info('Try loading preprocessed test files...')
-				testSet = self._load_from_preprocessed(self.test_preprocessed_path)
-				self.test_set += testSet
+				self.test_set = self._load_from_preprocessed(self.test_preprocessed_path)
 			except FileNotFoundError:
 				self.logger.info('Preprocessed test file not found !')
 
@@ -122,45 +143,81 @@ class MilitaryAiDataset(object):
 	def _load_embeddings(self):
 
 		try:
-			self.logger.info("Loading flag embedding model")
-			self.flag_wv = KeyedVectors.load(self.flag_embed_path)
+			self.logger.info("Loading pyltp flag embedding model")
+			self.pyltp_flag_wv = KeyedVectors.load(self.pyltp_flag_embed_path)
 		except Exception:
 
 			self.logger.info("flag embedding model not found !")
 
 		try:
-			self.logger.info("Loading token embedding model")
-			self.token_wv = KeyedVectors.load(self.token_embed_path)
+			self.logger.info("Loading pyltp token embedding model")
+			self.pyltp_token_wv = KeyedVectors.load(self.pyltp_token_embed_path)
 		except Exception:
-			self.logger.info("token embedding model not found !")
+			self.logger.info("pyltp token embedding model not found !")
+
+		try:
+			self.logger.info("Loading jieba flag embedding model")
+			self.jieba_flag_wv = KeyedVectors.load(self.jieba_flag_embed_path)
+		except Exception:
+
+			self.logger.info("jieba flag embedding model not found !")
+
+		try:
+			self.logger.info("Loading token embedding model")
+			self.jieba_token_wv = KeyedVectors.load(self.jieba_token_embed_path)
+		except Exception:
+			self.logger.info("jieba token embedding model not found !")
 
 		self.logger.info("Loading elmo embedding model")
 		self.elmo_dict, self.elmo_embed = get_elmo_vocab(self.elmo_vocab_path, self.elmo_embed_path)
 
 	def _get_vocabs(self):
 
-		self.token_wv.index2word.insert(0, '<unk>')
-		self.token_wv.index2word.insert(0, '<pad>')
-		self.token_wv.vectors = np.concatenate(
-			[[np.zeros(self.token_wv.vector_size, dtype=np.float32),
-			  np.ones(self.token_wv.vector_size, dtype=np.float32) * 0.05, ], self.token_wv.vectors], axis=0)
+		self.pyltp_token_wv.index2word.insert(0, '<unk>')
+		self.pyltp_token_wv.index2word.insert(0, '<pad>')
+		self.pyltp_token_wv.vectors = np.concatenate(
+			[[np.zeros(self.pyltp_token_wv.vector_size, dtype=np.float32),
+			  np.ones(self.pyltp_token_wv.vector_size, dtype=np.float32) * 0.05, ], self.pyltp_token_wv.vectors], axis=0)
 
-		self.flag_wv.index2word.insert(0, '<unk>')
-		self.flag_wv.index2word.insert(0, '<pad>')
-		self.flag_wv.vectors = np.concatenate(
-			[[np.zeros(self.flag_wv.vector_size, dtype=np.float32),
-			  np.ones(self.flag_wv.vector_size, dtype=np.float32) * 0.05, ], self.flag_wv.vectors], axis=0)
+		self.pyltp_flag_wv.index2word.insert(0, '<unk>')
+		self.pyltp_flag_wv.index2word.insert(0, '<pad>')
+		self.pyltp_flag_wv.vectors = np.concatenate(
+			[[np.zeros(self.pyltp_flag_wv.vector_size, dtype=np.float32),
+			  np.ones(self.pyltp_flag_wv.vector_size, dtype=np.float32) * 0.05, ], self.pyltp_flag_wv.vectors], axis=0)
 
-		self.flag_vocab = Vocab(self.flag_wv.index2word, self.flag_wv.vectors)
+		self.pyltp_flag_vocab = Vocab(self.pyltp_flag_wv.index2word, self.pyltp_flag_wv.vectors)
 
-		self.logger.info('the final flag vocab size is {}'.format(self.flag_vocab.size()))
+		self.logger.info('the final pyltp flag vocab size is {}'.format(self.pyltp_flag_vocab.size()))
 
-		self.token_vocab = Vocab(self.token_wv.index2word, self.token_wv.vectors)
+		self.pyltp_token_vocab = Vocab(self.pyltp_token_wv.index2word, self.pyltp_token_wv.vectors)
 
-		self.logger.info('the final token vocab size is {}'.format(self.token_vocab.size()))
+		self.logger.info('the final pyltp token vocab size is {}'.format(self.pyltp_token_vocab.size()))
+
+		self.jieba_token_wv.index2word.insert(0, '<unk>')
+		self.jieba_token_wv.index2word.insert(0, '<pad>')
+		self.jieba_token_wv.vectors = np.concatenate(
+			[[np.zeros(self.jieba_token_wv.vector_size, dtype=np.float32),
+			  np.ones(self.jieba_token_wv.vector_size, dtype=np.float32) * 0.05, ], self.jieba_token_wv.vectors],
+			axis=0)
+
+		self.jieba_flag_wv.index2word.insert(0, '<unk>')
+		self.jieba_flag_wv.index2word.insert(0, '<pad>')
+		self.jieba_flag_wv.vectors = np.concatenate(
+			[[np.zeros(self.jieba_flag_wv.vector_size, dtype=np.float32),
+			  np.ones(self.jieba_flag_wv.vector_size, dtype=np.float32) * 0.05, ], self.jieba_flag_wv.vectors], axis=0)
+
+		self.jieba_flag_vocab = Vocab(self.jieba_flag_wv.index2word, self.jieba_flag_wv.vectors)
+
+		self.logger.info('the final jieba flag vocab size is {}'.format(self.jieba_flag_vocab.size()))
+
+		self.jieba_token_vocab = Vocab(self.jieba_token_wv.index2word, self.jieba_token_wv.vectors)
+
+		self.logger.info('the final jieba token vocab size is {}'.format(self.jieba_token_vocab.size()))
+
 		self.elmo_vocab = Vocab(list(self.elmo_dict.keys()), self.elmo_embed)
+
 		del self.elmo_dict, self.elmo_embed
-		del self.flag_wv, self.token_wv
+		del self.pyltp_flag_wv, self.pyltp_token_wv, self.jieba_flag_wv, self.jieba_token_wv
 		gc.collect()
 
 	def _one_mini_batch(self, data, indices):
@@ -363,10 +420,17 @@ class MilitaryAiDataset(object):
 			batch_indices = indices[batch_start: batch_start + batch_size]
 			yield self._one_mini_batch(data, batch_indices)
 
+	def switch(self):
+		ft = ['jieba', 'pyltp'] if self.use_jieba else ['jieba', 'pyltp']
+		self.logger.info("Switching dataset from {} to {}".format(ft[0], ft[1]))
+		self.__init__(self.pyltp_cfg, self.jieba_cfg, not self.use_jieba, self.is_test)
+
 
 if __name__ == '__main__':
 	from config import jieba_data_config
+	from config import pyltp_data_config
 
-	cfg = jieba_data_config.config
+	jieba_cfg = jieba_data_config.config
+	pyltp_cfg = pyltp_data_config.config
 
-	data = MilitaryAiDataset(cfg, True)
+	data = MilitaryAiDataset(pyltp_cfg, jieba_cfg)
