@@ -29,6 +29,7 @@ cur_model_cfg = bidaf_1_cfg
 # cur_cfg = mlstm_2_cfg
 
 cur_data_cfg = pyltp_cfg
+# cur_data_cfg = jieba_cfg
 
 
 def parse_args(model_cfg):

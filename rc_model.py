@@ -137,7 +137,7 @@ class RCModel(object):
 					'flag_embedding',
 					shape=(self.flag_vocab.size(), self.flag_vocab.embed_dim),
 					initializer=tf.constant_initializer(self.flag_vocab.embeddings),
-					trainable=True
+					trainable=False
 				)
 			p_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.p_f)
 			q_f_emb = tf.nn.embedding_lookup(self.flag_embeddings, self.q_f)
@@ -365,8 +365,15 @@ class RCModel(object):
 			dropout_keep_prob: float value indicating dropout keep probability
 		"""
 		total_num, total_mrl, total_pointer_loss = 0, 0, 0
+		flag = 1
 		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss = 50, 1000, 0, 0
 		for bitx, batch in enumerate(train_batches, 1):
+			if max_rouge_l >= 0.88:
+				flag = 2
+			if max_rouge_l >= 0.89:
+				flag = 3
+			if max_rouge_l >= 0.895:
+				flag = 4
 			feed_dict = {self.p_t: batch['article_token_ids'],
 						 self.q_t: batch['question_token_ids'],
 						 self.p_f: batch['article_flag_ids'],
@@ -398,13 +405,14 @@ class RCModel(object):
 			total_num += batch_size
 			n_batch_mrl += mrl
 			n_batch_pointer_loss += pointer_loss
+
 			if log_every_n_batch > 0 and bitx % log_every_n_batch == 0:
 				self.logger.info('Average loss from batch {} to {} is MRL Loss: {}, Pointer Loss: {}'.format(
 					bitx - log_every_n_batch + 1, bitx, n_batch_mrl / log_every_n_batch,
 					n_batch_pointer_loss / log_every_n_batch))
 				n_batch_mrl = 0
 				n_batch_pointer_loss = 0
-			if eval_every_n_batch > 0 and bitx > 0 and bitx % eval_every_n_batch == 0:
+			if (eval_every_n_batch // flag) > 0 and bitx > 0 and bitx % (eval_every_n_batch // flag) == 0:
 				self.logger.info('Evaluating the model after batch {}'.format(bitx))
 				if data.dev_set is not None:
 					eval_batches = data.gen_mini_batches('dev', batch_size, shuffle=False)
@@ -414,7 +422,10 @@ class RCModel(object):
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
-						self.save(save_dir, save_prefix)
+						if bleu_rouge['Rouge-L'] < 0.885:
+							self.save(save_dir, save_prefix + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
+						else:
+							self.save(save_dir, save_prefix)
 						max_rouge_l = bleu_rouge['Rouge-L']
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
@@ -455,8 +466,10 @@ class RCModel(object):
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
 
 					if bleu_rouge['Rouge-L'] > max_rouge_l:
-						self.save(save_dir, save_prefix)
-						max_rouge_l = bleu_rouge['Rouge-L']
+						if bleu_rouge['Rouge-L'] < 0.885:
+							self.save(save_dir, save_prefix + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
+						else:
+							self.save(save_dir, save_prefix)
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 			else:
@@ -623,7 +636,7 @@ class RCModel(object):
 													  self.end_probs],
 													 feed_dict)
 
-			for sample, prob1, prob2 in zip(batch['raw_data'], batch_prob1, batch_prob2):
+			for sample, prob1, prob2 in zip(batch['raw_data'], batch_prob1.tolist(), batch_prob2.tolist()):
 				answer_dict[sample['question_id']] = {'prob1': prob1,
 													  'prob2': prob2,
 													  'article_id': sample['article_id']}
