@@ -28,7 +28,7 @@ class RCModel(object):
 	Implements the main reading comprehension model.
 	"""
 
-	def __init__(self, char_vocab, token_vocab, flag_vocab, elmo_vocab, cfg):
+	def __init__(self, token_vocab, flag_vocab, elmo_vocab, cfg):
 
 		# logging
 		self.logger = logging.getLogger("Military AI")
@@ -43,11 +43,10 @@ class RCModel(object):
 		self.loss_type = cfg.loss_type
 		self.weight_decay = cfg.weight_decay
 		self.use_dropout = cfg.dropout_keep_prob < 1
-		self.use_char_emb = cfg.use_char_emb
+
 		self.qtype_count = cfg.qtype_count
 
 		# the vocab
-		self.char_vocab = char_vocab
 		self.token_vocab = token_vocab
 		self.flag_vocab = flag_vocab
 		self.elmo_vocab = elmo_vocab
@@ -96,12 +95,10 @@ class RCModel(object):
 		self.q_f = tf.placeholder(tf.int32, [None, None])
 		self.p_e = tf.placeholder(tf.int32, [None, None])
 		self.q_e = tf.placeholder(tf.int32, [None, None])
-		self.p_c = tf.placeholder(tf.int32, [None, None, None])
-		self.q_c = tf.placeholder(tf.int32, [None, None, None])
+
 		self.p_t_length = tf.placeholder(tf.int32, [None])
 		self.q_t_length = tf.placeholder(tf.int32, [None])
-		self.p_c_length = tf.placeholder(tf.int32, [None])
-		self.q_c_length = tf.placeholder(tf.int32, [None])
+
 		self.start_label = tf.placeholder(tf.int32, [None])
 		self.end_label = tf.placeholder(tf.int32, [None])
 		# delta stuff
@@ -115,8 +112,6 @@ class RCModel(object):
 
 		self.p_pad_len = tf.placeholder(tf.int32)
 		self.q_pad_len = tf.placeholder(tf.int32)
-		self.p_CL = tf.placeholder(tf.int32)
-		self.q_CL = tf.placeholder(tf.int32)
 
 		self.dropout_keep_prob = tf.placeholder(tf.float32)
 		self.dropout = tf.placeholder_with_default(0.0, (), name="dropout")
@@ -160,27 +155,10 @@ class RCModel(object):
 
 		self.p_t_emb = tf.concat([self.p_t_emb, p_f_emb, p_e_emb], axis=-1)
 		self.q_t_emb = tf.concat([self.q_t_emb, q_f_emb, q_e_emb], axis=-1)
-		# if self.use_dropout:
-		#     self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
-		#     self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
 
-		if self.use_char_emb:
-			with tf.variable_scope('char_embedding'):
-				with tf.device('/cpu:0'):
-					self.char_embeddings = tf.get_variable(
-						'char_embedding',
-						shape=(self.char_vocab.size(), self.char_vocab.embed_dim),
-						initializer=tf.constant_initializer(self.char_vocab.embeddings),
-						trainable=False
-					)
-
-				self.p_c_emb = tf.nn.embedding_lookup(self.char_embeddings, self.p_c)
-				self.q_c_emb = tf.nn.embedding_lookup(self.char_embeddings, self.q_c)
-				batch_size = tf.shape(self.start_label)[0]
-				self.p_c_emb = tf.reshape(self.p_c_emb,
-										  [batch_size * self.p_pad_len, self.p_CL, self.char_vocab.embed_dim])
-				self.q_c_emb = tf.reshape(self.q_c_emb,
-										  [batch_size * self.q_pad_len, self.q_CL, self.char_vocab.embed_dim])
+	# if self.use_dropout:
+	#     self.p_t_emb = tf.nn.dropout(self.p_t_emb, self.dropout_keep_prob)
+	#     self.q_t_emb = tf.nn.dropout(self.q_t_emb, self.dropout_keep_prob)
 
 	# if self.use_dropout:
 	#     self.p_c_emb = tf.nn.dropout(self.p_c_emb, self.dropout_keep_prob)
@@ -191,30 +169,12 @@ class RCModel(object):
 		Employs two Bi-LSTMs to encode passage and question separately
 		"""
 		with tf.variable_scope('encode'):
-			batch_size = tf.shape(self.start_label)[0]
 			with tf.variable_scope('passage_encoding'):
 				with tf.variable_scope('token_level'):
-					sep_p_t_encodes, _ = rnn('bi-lstm', self.p_t_emb, self.p_t_length, self.hidden_size)
-				if self.use_char_emb:
-					with tf.variable_scope('char_level'):
-						_, sep_p_c_encodes = rnn('bi-lstm', self.p_c_emb, self.p_c_length, self.hidden_size)
-
-						sep_p_c_encodes = tf.reshape(sep_p_c_encodes, [batch_size, self.p_pad_len,
-																	   self.hidden_size * 2])
-					self.sep_p_encodes = tf.concat([sep_p_t_encodes, sep_p_c_encodes], axis=-1)
-				else:
-					self.sep_p_encodes = sep_p_t_encodes
+					self.sep_p_encodes, _ = rnn('bi-lstm', self.p_t_emb, self.p_t_length, self.hidden_size)
 			with tf.variable_scope('question_encoding'):
 				with tf.variable_scope('token_level'):
-					sep_q_t_encodes, _ = rnn('bi-lstm', self.q_t_emb, self.q_t_length, self.hidden_size)
-				if self.use_char_emb:
-					with tf.variable_scope('char_level'):
-						_, sep_q_c_encodes = rnn('bi-lstm', self.q_c_emb, self.q_c_length, self.hidden_size)
-						sep_q_c_encodes = tf.reshape(sep_q_c_encodes, [batch_size, self.q_pad_len,
-																	   self.hidden_size * 2])
-					self.sep_q_encodes = tf.concat([sep_q_t_encodes, sep_q_c_encodes], axis=-1)
-				else:
-					self.sep_q_encodes = sep_q_t_encodes
+					self.sep_q_encodes, _ = rnn('bi-lstm', self.q_t_emb, self.q_t_length, self.hidden_size)
 			if self.use_dropout:
 				self.sep_p_encodes = tf.nn.dropout(self.sep_p_encodes, self.dropout_keep_prob)
 				self.sep_q_encodes = tf.nn.dropout(self.sep_q_encodes, self.dropout_keep_prob)
@@ -429,21 +389,7 @@ class RCModel(object):
 						 self.delta_rouges: batch['delta_rouges'],
 
 						 self.dropout_keep_prob: dropout_keep_prob}
-			if self.use_char_emb:
-				feed_dict.update(
-					{self.p_c: batch['article_char_ids'],
-					 self.q_c: batch['question_char_ids'],
-					 self.p_c_length: batch['article_c_len'],
-					 self.q_c_length: batch['question_c_len'],
-					 self.p_CL: batch['article_CL'],
-					 self.q_CL: batch['question_CL']
-					 })
-			# print('article CL:{}\n'
-			#       'question_CL:{}\n'
-			#       'article pad len:{}\n'
-			#       'question pad len:{}'.format(batch['article_CL'], batch['question_CL'],
-			#                                    batch['article_pad_len'], batch['question_pad_len']))
-			# print(batch['question_char_ids'])
+
 			_, mrl, pointer_loss, type_loss = self.sess.run(
 				[self.train_op, self.mrl, self.pointer_loss, self.type_loss], feed_dict)
 			batch_size = len(batch['raw_data'])
@@ -516,7 +462,7 @@ class RCModel(object):
 			else:
 				self.save(save_dir, save_prefix + '_' + str(epoch))
 
-	def evaluate(self, eval_batches, result_dir=None, result_prefix=None, save_full_info=False):
+	def evaluate(self, eval_batches, result_dir=None, result_prefix=None):
 		"""
 		Evaluates the model performance on eval_batches and results are saved if specified
 		Args:
@@ -555,18 +501,13 @@ class RCModel(object):
 
 						 self.dropout_keep_prob: 1.0}
 
-			if self.use_char_emb:
-				feed_dict.update(
-					{self.p_c: batch['article_char_ids'],
-					 self.q_c: batch['question_char_ids'],
-					 self.p_c_length: batch['article_c_len'],
-					 self.q_c_length: batch['question_c_len'],
-					 self.p_CL: batch['article_CL'],
-					 self.q_CL: batch['question_CL']
-					 })
-			pred_starts, pred_ends, mrl, pointer_loss = self.sess.run([self.pred_starts,
-																	   self.pred_ends, self.mrl, self.pointer_loss],
-																	  feed_dict)
+			pred_starts, pred_ends, prob1, prob2, mrl, pointer_loss = self.sess.run([self.pred_starts,
+																					 self.pred_ends,
+																					 self.start_probs,
+																					 self.end_probs,
+																					 self.mrl,
+																					 self.pointer_loss],
+																					feed_dict)
 			batch_size = len(batch['raw_data'])
 			total_mrl += mrl * batch_size
 			total_pointer_loss += pointer_loss * batch_size
@@ -640,6 +581,62 @@ class RCModel(object):
 		best_answer = ''.join(
 			sample['article_tokens'][best_start: best_end + 1])
 		return best_answer
+
+	def predict_for_ensemble(self, eval_batches, result_dir=None, result_prefix=None):
+		"""
+		Evaluates the model performance on eval_batches and results are saved if specified
+		Args:
+			eval_batches: iterable batch data
+			result_dir: directory to save predicted answers, answers will not be saved if None
+			result_prefix: prefix of the file for saving predicted answers,
+						   answers will not be saved if None
+			save_full_info: if True, the pred_answers will be added to raw sample and saved
+		"""
+		answer_dict = {}
+
+		for b_itx, batch in enumerate(eval_batches):
+			feed_dict = {self.p_t: batch['article_token_ids'],
+						 self.q_t: batch['question_token_ids'],
+						 self.p_f: batch['article_flag_ids'],
+						 self.q_f: batch['question_flag_ids'],
+						 self.p_e: batch['article_elmo_ids'],
+						 self.q_e: batch['question_elmo_ids'],
+						 self.p_pad_len: batch['article_pad_len'],
+						 self.q_pad_len: batch['question_pad_len'],
+						 self.p_t_length: batch['article_tokens_len'],
+						 self.q_t_length: batch['question_tokens_len'],
+
+						 self.start_label: batch['start_id'],
+						 self.end_label: batch['end_id'],
+						 self.wiqB: batch['wiqB'],
+						 self.qtype_vec: batch['qtype_vecs'],
+
+						 # delta stuff
+						 self.delta_starts: batch['delta_token_starts'],
+						 self.delta_ends: batch['delta_token_ends'],
+						 self.delta_span_idxs: batch['delta_span_idxs'],
+						 self.delta_rouges: batch['delta_rouges'],
+
+						 self.dropout_keep_prob: 1.0}
+
+			batch_prob1, batch_prob2 = self.sess.run([self.start_probs,
+													  self.end_probs],
+													 feed_dict)
+
+			for sample, prob1, prob2 in zip(batch['raw_data'], batch_prob1, batch_prob2):
+				answer_dict[sample['question_id']] = {'prob1': prob1,
+													  'prob2': prob2,
+													  'article_id': sample['article_id']}
+
+		if result_dir is not None and result_prefix is not None:
+			result_file = os.path.join(result_dir, result_prefix + '.json')
+			with open(result_file, 'w') as fout:
+				# for pred_answer in pred_answers:
+				#     fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
+				json.dump(answer_dict, fout, ensure_ascii=False)
+
+			self.logger.info('Saving {} results to {}'.format(result_prefix, result_file))
+		return
 
 	# return (best_start, best_end), max_prob
 

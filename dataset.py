@@ -1,12 +1,11 @@
 # coding = utf-8
+import gc
 import json
 import logging
 import multiprocessing
 
 import numpy as np
 from gensim.models import Word2Vec, KeyedVectors
-
-from preprocess import preprocess_dataset
 from utils.read_elmo_embedding import get_elmo_vocab
 from vocab import Vocab
 
@@ -16,26 +15,25 @@ class MilitaryAiDataset(object):
 	This module implements the data loading and preprocessing steps
 	"""
 
-	def __init__(self, cfg):
+	def __init__(self, cfg, test=False):
 		self.logger = logging.getLogger("Military AI")
 		self.logger.setLevel(logging.INFO)
 		self.train_set, self.test_set = [], []
 
-		self.train_raw_path = cfg.train_raw_files
-		self.test_raw_path = cfg.test_raw_files
+		self.train_raw_path = cfg.train_raw_file
+		self.test_raw_path = cfg.test_raw_file
 
-		self.train_preprocessed_path = cfg.train_preprocessed_files
-		self.test_preprocessed_path = cfg.test_preprocessed_files
-		self.char_embed_path = cfg.char_embed_file
+		self.train_preprocessed_path = cfg.train_preprocessed_file
+		self.test_preprocessed_path = cfg.test_preprocessed_file
+		self.flag_embed_path = cfg.flag_embed_file
 		self.token_embed_path = cfg.token_embed_file
 		self.elmo_vocab_path = cfg.elmo_dict_file
 		self.elmo_embed_path = cfg.elmo_embed_file
-		self.char_min_cnt = cfg.char_min_cnt
-		self.token_min_cnt = cfg.token_min_cnt
-		self.use_char_emb = cfg.use_char_emb
-		self.all_tokens = []
-		self.all_flags = []
-		self.all_chars = []
+		self.seed = cfg.seed
+		self.dev_split = cfg.dev_split
+		self.cv = cfg.cv
+
+		self.is_test = test
 
 		self._load_dataset()
 		self._load_embeddings()
@@ -50,17 +48,21 @@ class MilitaryAiDataset(object):
 			[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
 		self.q_token_max_len = max(
 			[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
-		#  split train & dev by article_id
-		self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
-		np.random.seed(cfg.seed)
-		np.random.shuffle(self.total_article_ids)
-		self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * cfg.dev_split)]
-		self.dev_set = list(
-			filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
-				   self.train_set))
-		self.train_set = list(filter(
-			lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
-			self.train_set))
+
+		if not self.is_test:
+			#  split train & dev by article_id
+			self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
+			np.random.seed(self.seed)
+			np.random.shuffle(self.total_article_ids)
+			one_piece = int(len(self.total_article_ids) * self.dev_split)
+			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
+			self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * self.dev_split)]
+			self.dev_set = list(
+				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
+					   self.train_set))
+			self.train_set = list(filter(
+				lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
+				self.train_set))
 
 	#
 	def _load_dataset(self):
@@ -68,62 +70,22 @@ class MilitaryAiDataset(object):
 		Loads the dataset
 		:return:
 		"""
-		for i, train_file in enumerate(self.train_preprocessed_path):
+		if not self.is_test:
 			try:
 				self.logger.info('Loading preprocessed train files...')
-				trainSet = self._load_from_preprocessed(self.train_preprocessed_path[i])
+				self.train_set = self._load_from_preprocessed(self.train_preprocessed_path)
+
 			except FileNotFoundError:
-				self.logger.info('Loading train files from raw...')
-				trainSet = self._preprocess_raw(self.train_raw_path[i],
-												self.train_preprocessed_path[i])
-			self.train_set += trainSet
-		for i, test_file in enumerate(self.test_preprocessed_path):
+				self.logger.info('Preprocessed train file not found !')
+		else:
 			try:
 				self.logger.info('Try loading preprocessed test files...')
-				testSet = self._load_from_preprocessed(self.test_preprocessed_path[i])
+				testSet = self._load_from_preprocessed(self.test_preprocessed_path)
+				self.test_set += testSet
 			except FileNotFoundError:
-				self.logger.info('Loading train files from raw...')
-				testSet = self._preprocess_raw(self.test_raw_path[i], self.test_preprocessed_path[i])
-			self.test_set += testSet
+				self.logger.info('Preprocessed test file not found !')
 
-	def _preprocess_raw(self, data_path, preprocessed_path):
-		"""
-		Preprocess the raw data if preprocessed file doesn't exist
-		:param data_path: the raw data path
-		:param preprocessed_path:  the preprocessed file path to save
-		:param train:  is training data
-		:return:
-			whole dataset
-		"""
-		from feature_handler.question_handler import QuestionTypeHandler
-		ques_type_handler = QuestionTypeHandler()
 
-		articles, qas, dataset = preprocess_dataset(data_path)
-		for article in articles:
-			self.all_tokens.append(article['article_tokens'])
-			self.all_chars.append(''.join(article['article_tokens']))
-			self.all_flags.extend(article['article_flags'])
-		for qa in qas:
-			self.all_tokens.append(qa['question_tokens'])
-			self.all_chars.append(''.join(qa['question_flags']))
-			self.all_flags.extend(qa['question_flags'])
-		for sample in dataset:
-			question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
-			sample['qtype'] = question_types
-			sample['qtype_vec'] = type_vec.tolist()
-			sample['article_tokens_len'] = len(sample['article_tokens'])
-			sample['question_tokens_len'] = len(sample['question_tokens'])
-
-		data_to_save = {
-			'articles': articles,
-			'questions': qas,
-			'samples': dataset
-		}
-
-		with open(preprocessed_path, 'w') as fo:
-			json.dump(data_to_save, fo)
-
-		return dataset
 
 	def _gen_hand_features(self, batch_data):
 		batch_data['wiqB'] = []
@@ -147,60 +109,35 @@ class MilitaryAiDataset(object):
 
 		with open(data_path, 'r') as fp:
 			total = json.load(fp)
-			for article in total['articles']:
-				self.all_tokens.append(article['article_tokens'])
-				self.all_chars.append(''.join(article['article_tokens']))
-				self.all_flags.extend(article['article_flags'])
-			for qa in total['questions']:
-				self.all_tokens.append(qa['question_tokens'])
-				self.all_chars.append(''.join(qa['question_flags']))
-				self.all_flags.extend(qa['question_flags'])
-			for sample in total['samples']:
+
+			for sample in total:
 				question_types, type_vec = ques_type_handler.ana_type(''.join(sample['question_tokens']))
 				sample['qtype'] = question_types
 				sample['qtype_vec'] = type_vec.tolist()
 				sample['article_tokens_len'] = len(sample['article_tokens'])
 				sample['question_tokens_len'] = len(sample['question_tokens'])
 
-		return total['samples']
+		return total
 
 	def _load_embeddings(self):
 
 		try:
-			self.logger.info("Loading char embedding model")
-			self.char_wv = KeyedVectors.load(self.char_embed_path)
+			self.logger.info("Loading flag embedding model")
+			self.flag_wv = KeyedVectors.load(self.flag_embed_path)
 		except Exception:
-			self.logger.info("Training char embedding model")
-			self.char_wv = Word2Vec(self.all_chars, size=75, window=5, compute_loss=True,
-									min_count=1, iter=60, workers=multiprocessing.cpu_count()).wv
-			self.logger.info("Saving char embedding model")
-			self.char_wv.save(self.char_embed_path)
+
+			self.logger.info("flag embedding model not found !")
+
 		try:
 			self.logger.info("Loading token embedding model")
 			self.token_wv = KeyedVectors.load(self.token_embed_path)
 		except Exception:
-			self.logger.info("Training token embedding model")
-			self.token_wv = Word2Vec(self.all_tokens, size=300, window=5, compute_loss=True,
-									 min_count=1, iter=60, workers=multiprocessing.cpu_count()).wv
-			self.logger.info("Saving token embedding model")
-			self.token_wv.save(self.token_embed_path)
+			self.logger.info("token embedding model not found !")
 
 		self.logger.info("Loading elmo embedding model")
 		self.elmo_dict, self.elmo_embed = get_elmo_vocab(self.elmo_vocab_path, self.elmo_embed_path)
 
 	def _get_vocabs(self):
-		self.unique_flags = sorted(set(self.all_flags))
-
-		def convert_to_one_hot(C):
-			return np.eye(C)[np.linspace(0, C - 1, C - 1, dtype=np.int32).reshape(-1)].T
-
-		flags_embeddings = convert_to_one_hot(len(self.unique_flags))
-
-		self.unique_flags.insert(0, '<unk>')
-		self.unique_flags.insert(0, '<pad>')
-		flags_embeddings = np.concatenate([[np.zeros(flags_embeddings.shape[1], dtype=np.float32),
-											np.ones(flags_embeddings.shape[1], dtype=np.float32) * 0.05, ],
-										   flags_embeddings], axis=0)
 
 		self.token_wv.index2word.insert(0, '<unk>')
 		self.token_wv.index2word.insert(0, '<pad>')
@@ -208,33 +145,23 @@ class MilitaryAiDataset(object):
 			[[np.zeros(self.token_wv.vector_size, dtype=np.float32),
 			  np.ones(self.token_wv.vector_size, dtype=np.float32) * 0.05, ], self.token_wv.vectors], axis=0)
 
-		self.char_wv.index2word.insert(0, '<unk>')
-		self.char_wv.index2word.insert(0, '<pad>')
-		self.char_wv.vectors = np.concatenate(
-			[[np.zeros(self.char_wv.vector_size, dtype=np.float32),
-			  np.ones(self.char_wv.vector_size, dtype=np.float32) * 0.05, ], self.char_wv.vectors], axis=0)
+		self.flag_wv.index2word.insert(0, '<unk>')
+		self.flag_wv.index2word.insert(0, '<pad>')
+		self.flag_wv.vectors = np.concatenate(
+			[[np.zeros(self.flag_wv.vector_size, dtype=np.float32),
+			  np.ones(self.flag_wv.vector_size, dtype=np.float32) * 0.05, ], self.flag_wv.vectors], axis=0)
 
-		self.flag_vocab = Vocab(self.unique_flags, flags_embeddings)
+		self.flag_vocab = Vocab(self.flag_wv.index2word, self.flag_wv.vectors)
 
-		self.char_vocab = Vocab(self.char_wv.index2word, self.char_wv.vectors)
-		self.char_vocab.count([y for x in self.all_chars for y in x])
-		unfiltered_char_vocab_size = self.char_vocab.size()
-		self.char_vocab.filter_tokens_by_cnt(min_cnt=self.char_min_cnt)
-		filtered_num = unfiltered_char_vocab_size - self.char_vocab.size()
-		self.logger.info('After filter {} chars, the final char vocab size is {}'.format(filtered_num,
-																						 self.char_vocab.size()))
+		self.logger.info('the final flag vocab size is {}'.format(self.flag_vocab.size()))
 
 		self.token_vocab = Vocab(self.token_wv.index2word, self.token_wv.vectors)
-		self.token_vocab.count([y for x in self.all_tokens for y in x])
-		unfiltered_token_vocab_size = self.token_vocab.size()
-		self.token_vocab.filter_tokens_by_cnt(min_cnt=self.token_min_cnt)
-		filtered_num = unfiltered_token_vocab_size - self.token_vocab.size()
-		self.logger.info('After filter {} tokens, the final token vocab size is {}'.format(filtered_num,
-																						   self.token_vocab.size()))
+
+		self.logger.info('the final token vocab size is {}'.format(self.token_vocab.size()))
 		self.elmo_vocab = Vocab(list(self.elmo_dict.keys()), self.elmo_embed)
 		del self.elmo_dict, self.elmo_embed
-		del self.char_wv, self.token_wv
-		del self.all_chars, self.all_tokens, self.all_flags, self.unique_flags
+		del self.flag_wv, self.token_wv
+		gc.collect()
 
 	def _one_mini_batch(self, data, indices):
 		"""
@@ -256,9 +183,6 @@ class MilitaryAiDataset(object):
 					  'question_tokens_len': [],
 					  'article_tokens_len': [],
 
-					  'question_char_ids': [],
-					  'article_char_ids': [],
-
 					  'start_id': [],
 					  'end_id': [],
 					  'qtype_vecs': [],
@@ -277,14 +201,10 @@ class MilitaryAiDataset(object):
 
 					  'article_pad_len': 0,
 					  'question_pad_len': 0,
-					  'article_CL': 0,
-					  'question_CL': 0,
 					  }
 		for sidx, sample in enumerate(batch_data['raw_data']):
 
-			if self.use_char_emb:
-				batch_data['question_char_ids'].append(sample['question_char_ids'])
-				batch_data['article_char_ids'].append(sample['article_char_ids'])
+
 			batch_data['question_token_ids'].append(sample['question_token_ids'])
 			batch_data['question_tokens_len'].append(sample['question_tokens_len'])
 
@@ -298,28 +218,32 @@ class MilitaryAiDataset(object):
 
 			batch_data['qtype_vecs'].append(sample['qtype_vec'])
 
-			# delta stuff
-			batch_data['delta_token_starts'].extend(sample['delta_token_starts'])
-			batch_data['delta_token_ends'].extend(sample['delta_token_ends'])
-			batch_data['delta_rouges'].extend(sample['delta_rouges'])
-			batch_data['delta_span_idxs'].extend([sidx] * len(sample['delta_rouges']))
+
 
 		batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
 		batch_data['article_pad_len'] = pad_p_len
 		batch_data['question_pad_len'] = pad_q_len
-		if self.use_char_emb:
-			batch_data['article_CL'] = pad_p_token_len
-			batch_data['question_CL'] = pad_q_token_len
-		for sample in batch_data['raw_data']:
+
+		for sidx, sample in enumerate(batch_data['raw_data']):
 			if 'answer_tokens' in sample and len(sample['answer_tokens']):
 				# batch_data['answer_tokens_len'].append(len(sample['answer_tokens']))
 				batch_data['start_id'].append(sample['answer_token_start'])
 				batch_data['end_id'].append(sample['answer_token_end'])
+				# delta stuff
+				batch_data['delta_token_starts'].extend(sample['delta_token_starts'])
+				batch_data['delta_token_ends'].extend(sample['delta_token_ends'])
+				batch_data['delta_rouges'].extend(sample['delta_rouges'])
+				batch_data['delta_span_idxs'].extend([sidx] * len(sample['delta_rouges']))
 			else:
 				# fake span for some samples, only valid for testing
 				batch_data['start_id'].append(0)
 				batch_data['end_id'].append(0)
-				# batch_data['answer_tokens_len'].append(0)
+				# delta stuff
+				batch_data['delta_token_starts'].extend([0])
+				batch_data['delta_token_ends'].extend([0])
+				batch_data['delta_rouges'].extend([0])
+				batch_data['delta_span_idxs'].extend([sidx] * len(sample['delta_rouges']))
+		# batch_data['answer_tokens_len'].append(0)
 		batch_data = self._gen_hand_features(batch_data)
 		return batch_data
 
@@ -331,7 +255,7 @@ class MilitaryAiDataset(object):
 		pad_id_t = self.token_vocab.get_id(self.token_vocab.pad_token)
 		pad_id_f = self.flag_vocab.get_id(self.flag_vocab.pad_token)
 		pad_id_e = self.flag_vocab.get_id(self.elmo_vocab.pad_token)
-		pad_id_c = self.char_vocab.get_id(self.char_vocab.pad_token)
+
 		pad_p_len = min(self.p_max_tokens_len, max(batch_data['article_tokens_len']))
 		pad_q_len = min(self.q_max_tokens_len, max(batch_data['question_tokens_len']))
 
@@ -351,27 +275,7 @@ class MilitaryAiDataset(object):
 										   for ids in batch_data['question_elmo_ids']]
 		pad_p_token_len = self.p_token_max_len
 		pad_q_token_len = self.q_token_max_len
-		if self.use_char_emb:
-			batch_data['article_c_len'] = []
-			for article in batch_data['article_char_ids']:
-				batch_data['article_c_len'] += [len(token) for token in article] + [0] * (pad_p_len - len(article))
 
-			batch_data['question_c_len'] = []
-			for question in batch_data['question_char_ids']:
-				batch_data['question_c_len'] += [len(token) for token in question] + [0] * (pad_q_len - len(question))
-
-			pad_p_token_len = min(self.p_token_max_len, max(batch_data['article_c_len']))
-			pad_q_token_len = min(self.q_token_max_len, max(batch_data['question_c_len']))
-
-			batch_data['article_char_ids'] = [
-				([(ids + [pad_id_c] * (pad_p_token_len - len(ids)))[:pad_p_token_len] for ids in tokens] + [
-					[pad_id_c] * pad_p_token_len] * (pad_p_len - len(tokens)))[:pad_p_len] for tokens
-				in batch_data['article_char_ids']]
-
-			batch_data['question_char_ids'] = [
-				([(ids + [pad_id_c] * (pad_q_token_len - len(ids)))[:pad_q_token_len] for ids in tokens] + [
-					[pad_id_c] * pad_q_token_len] * (pad_p_len - len(tokens)))[:pad_q_len] for tokens
-				in batch_data['question_char_ids']]
 		# print(len(batch_data))
 		return batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len
 
@@ -404,7 +308,6 @@ class MilitaryAiDataset(object):
 		Args:
 			vocab: the vocabulary on this dataset
 		"""
-		char2idx = self.char_vocab.token2id
 		token2idx = self.token_vocab.token2id
 		flag2idx = self.flag_vocab.token2id
 		elmo2idx = self.elmo_vocab.token2id
@@ -413,13 +316,7 @@ class MilitaryAiDataset(object):
 			if data_set is None:
 				continue
 			for sample in data_set:
-				if self.use_char_emb:
-					sample['question_char_ids'] = [
-						[char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
-						for token in sample['question_tokens']]
-					sample['article_char_ids'] = [
-						[char2idx[c] if c in char2idx.keys() else char2idx['<unk>'] for c in token]
-						for token in sample['article_tokens']]
+
 
 				# sample['question_token_max_len'] = max([len(token) for token in sample['question_tokens']])
 				# sample['article_token_max_len'] = max([len(token) for token in sample['article_tokens']])
@@ -468,8 +365,8 @@ class MilitaryAiDataset(object):
 
 
 if __name__ == '__main__':
-	from config import base_config
+	from config import jieba_data_config
 
-	cfg = base_config.config
+	cfg = jieba_data_config.config
 
-	data = MilitaryAiDataset(cfg)
+	data = MilitaryAiDataset(cfg, True)
