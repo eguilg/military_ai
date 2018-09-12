@@ -3,8 +3,6 @@ class ConfigBase:
 	# gpu
 	gpu = '0'
 
-	test = True
-
 	# learning
 	optim = 'adadelta'
 	learning_rate = 0.5

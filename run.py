@@ -77,17 +77,14 @@ def train(args, pylpt_cfg, jieba_cfg, model_cfg):
 
 	logger.info('Initialize the model...')
 	rc_model = RCModel(mai_data, model_cfg)
+
 	if args.is_restore or args.restore_suffix:
-		restore_prefix = model_cfg.algo + args.suffix
+		restore_prefix = 'pointer_pyltp_best'
 		if args.restore_suffix:
-			restore_prefix = model_cfg.algo + args.restore_suffix
+			restore_prefix = args.restore_suffix
 		rc_model.restore(model_dir=model_cfg.model_dir, model_prefix=restore_prefix)
 	logger.info('Training the model...')
 	rc_model.train(model_cfg.epochs, model_cfg.batch_size, save_dir=model_cfg.model_dir,
-				   save_prefix=model_cfg.algo
-							   + model_cfg.suffix + '_'
-							   + model_cfg.loss_type + '_'
-							   + str(pyltp_cfg.cv),
 				   dropout_keep_prob=model_cfg.dropout_keep_prob)
 	logger.info('Done with model training!')
 
@@ -103,10 +100,11 @@ def evaluate(args, pylpt_cfg, jieba_cfg, model_cfg):
 	if args.restore_suffix:
 		restore_prefix = args.restore_suffix
 	else:
-		restore_prefix = model_cfg.algo + model_cfg.suffix + '_' + model_cfg.loss_type + '_' + str(pyltp_cfg.cv)
+		restore_prefix = 'mrl_pyltp_best'
 
 	logger.info('Restoring the model...')
 	rc_model = RCModel(mai_data, model_cfg)
+
 	rc_model.restore(model_dir=model_cfg.model_dir,
 					 model_prefix=restore_prefix)
 	logger.info('Evaluating the model on dev set...')
@@ -130,7 +128,7 @@ def predict(args, pyltp_cfg, jieba_cfg, model_cfg):
 	if args.restore_suffix:
 		restore_prefix = args.restore_suffix
 	else:
-		restore_prefix = model_cfg.algo + model_cfg.suffix + '_' + model_cfg.loss_type + '_' + str(pyltp_cfg.cv)
+		restore_prefix = 'mrl_pyltp_best'
 
 	logger.info('Restoring the model...')
 	rc_model = RCModel(mai_data, model_cfg)

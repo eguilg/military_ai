@@ -163,7 +163,7 @@ class MilitaryAiDataset(object):
 			self.logger.info("jieba flag embedding model not found !")
 
 		try:
-			self.logger.info("Loading token embedding model")
+			self.logger.info("Loading jieba token embedding model")
 			self.jieba_token_wv = KeyedVectors.load(self.jieba_token_embed_path)
 		except Exception:
 			self.logger.info("jieba token embedding model not found !")
@@ -421,9 +421,48 @@ class MilitaryAiDataset(object):
 			yield self._one_mini_batch(data, batch_indices)
 
 	def switch(self):
-		ft = ['jieba', 'pyltp'] if self.use_jieba else ['jieba', 'pyltp']
+		ft = ['jieba', 'pyltp'] if self.use_jieba else ['pyltp', 'jieba']
 		self.logger.info("Switching dataset from {} to {}".format(ft[0], ft[1]))
-		self.__init__(self.pyltp_cfg, self.jieba_cfg, not self.use_jieba, self.is_test)
+
+		self.train_set, self.dev_set, self.test_set = [], [], []
+		self.use_jieba = not self.use_jieba
+
+		if self.use_jieba:
+			self.train_preprocessed_path = self.jieba_train_preprocessed_path
+			self.test_preprocessed_path = self.jieba_test_preprocessed_path
+			self.flag_vocab = self.jieba_flag_vocab
+			self.token_vocab = self.jieba_token_vocab
+		else:
+			self.train_preprocessed_path = self.pyltp_train_preprocessed_path
+			self.test_preprocessed_path = self.pyltp_test_preprocessed_path			
+			self.flag_vocab = self.pyltp_flag_vocab
+			self.token_vocab = self.pyltp_token_vocab
+
+		self._load_dataset()
+		self._convert_to_ids()
+
+		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
+		self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
+
+		self.p_token_max_len = max(
+			[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
+		self.q_token_max_len = max(
+			[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
+
+		if not self.is_test:
+			#  split train & dev by article_id
+			self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
+			np.random.seed(self.seed)
+			np.random.shuffle(self.total_article_ids)
+			one_piece = int(len(self.total_article_ids) * self.dev_split)
+			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
+			self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * self.dev_split)]
+			self.dev_set = list(
+				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
+					   self.train_set))
+			self.train_set = list(filter(
+				lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
+				self.train_set))
 
 
 if __name__ == '__main__':

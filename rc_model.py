@@ -35,8 +35,9 @@ class RCModel(object):
 
 		# basic config
 		self.algo = cfg.algo
-		# self.suffix = cfg.suffix
+		self.suffix = cfg.suffix
 		self.hidden_size = cfg.hidden_size
+
 		self.optim_type = cfg.optim
 		self.learning_rate = cfg.learning_rate
 		self.lr_decay = cfg.lr_decay
@@ -55,6 +56,7 @@ class RCModel(object):
 		self.jieba_token_vocab = dataset.jieba_token_vocab
 		self.jieba_flag_vocab = dataset.jieba_flag_vocab
 		self.data = dataset
+		self.model_name = self.algo + self.suffix + '_cv' + str(self.data.cv)
 
 		self.elmo_vocab = dataset.elmo_vocab
 
@@ -66,7 +68,7 @@ class RCModel(object):
 		self._build_graph()
 
 		# save info
-		self.saver = tf.train.Saver()
+		self.saver = tf.train.Saver(max_to_keep=12)
 
 		# initialize the model
 
@@ -161,7 +163,7 @@ class RCModel(object):
 						'flag_embedding',
 						shape=(self.jieba_flag_vocab.size(), self.jieba_flag_vocab.embed_dim),
 						initializer=tf.constant_initializer(self.jieba_flag_vocab.embeddings),
-						trainable=False
+						trainable=True
 					)
 			with tf.variable_scope('pyltp'):
 				with tf.device('/cpu:0'):
@@ -169,7 +171,7 @@ class RCModel(object):
 						'flag_embedding',
 						shape=(self.pyltp_flag_vocab.size(), self.pyltp_flag_vocab.embed_dim),
 						initializer=tf.constant_initializer(self.pyltp_flag_vocab.embeddings),
-						trainable=False
+						trainable=True
 					)
 			p_f_emb = tf.cond(self.use_jieba,
 							  true_fn=lambda: tf.nn.embedding_lookup(self.jieba_flag_embeddings, self.p_f),
@@ -394,7 +396,7 @@ class RCModel(object):
 		self.train_op = self.optimizer.minimize(self.loss, global_step=global_step)
 
 	def _train_epoch(self, train_batches, dropout_keep_prob,
-					 max_rouge_l, save_dir, save_prefix):
+					 max_rouge_l, save_dir):
 		"""
 		Trains the model for a single epoch.
 		Args:
@@ -407,11 +409,11 @@ class RCModel(object):
 		log_every_n_batch, eval_every_n_batch, n_batch_mrl, n_batch_pointer_loss = 50, 1000, 0, 0
 		for bitx, batch in enumerate(train_batches, 1):
 
-			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.88:
+			if max(max_rouge_l.values()) >= 0.885:
 				flag = 2
-			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.89:
+			if max(max_rouge_l.values()) >= 0.89:
 				flag = 3
-			if max_rouge_l[cur_dataset_fn(self.data.use_jieba)] >= 0.895:
+			if max(max_rouge_l.values()) >= 0.895:
 				flag = 4
 			feed_dict = {self.p_t: batch['article_token_ids'],
 						 self.q_t: batch['question_token_ids'],
@@ -465,16 +467,17 @@ class RCModel(object):
 					rouge_key = cur_dataset_fn(self.data.use_jieba)
 					if bleu_rouge['Rouge-L'] > max_rouge_l[rouge_key]:
 						if bleu_rouge['Rouge-L'] < 0.885:
-							self.save(save_dir, save_prefix + '_' + rouge_key + str(round(bleu_rouge['Rouge-L'], 4)))
+							self.save(save_dir,
+									  self.loss_type + '_' + rouge_key + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
 						else:
-							self.save(save_dir, save_prefix)
+							self.save(save_dir, self.loss_type + '_' + rouge_key + '_best')
 						max_rouge_l[rouge_key] = bleu_rouge['Rouge-L']
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 
 		return 1.0 * total_mrl / total_num, 1.0 * total_pointer_loss / total_num, max_rouge_l
 
-	def train(self, epochs, batch_size, save_dir, save_prefix,
+	def train(self, epochs, batch_size, save_dir,
 			  dropout_keep_prob=1.0, evaluate=True):
 		"""
 		Train the model with data
@@ -496,10 +499,11 @@ class RCModel(object):
 			self.logger.info('Training the model for epoch {}'.format(epoch))
 			train_batches = self.data.gen_mini_batches('train', batch_size, shuffle=True)
 			train_mrl, train_pointer_loss, max_rouge_l = self._train_epoch(train_batches, dropout_keep_prob,
-																		   max_rouge_l, save_dir, save_prefix)
+																		   max_rouge_l, save_dir)
 			self.logger.info(
 				'Average train loss for epoch {} is MRL Loss: {}, Pointer Loss: {}'.format(epoch, train_mrl,
 																						   train_pointer_loss))
+			rouge_key = cur_dataset_fn(self.data.use_jieba)
 			if evaluate:
 				self.logger.info('Evaluating the model after epoch {}'.format(epoch))
 				if self.data.dev_set is not None:
@@ -508,17 +512,18 @@ class RCModel(object):
 					self.logger.info('Dev eval mrl {}'.format(eval_mrl))
 					self.logger.info('Dev eval pointer loss {}'.format(eval_pointer_loss))
 					self.logger.info('Dev eval result: {}'.format(bleu_rouge))
-					rouge_key = cur_dataset_fn(self.data.use_jieba)
+
 					if bleu_rouge['Rouge-L'] > max_rouge_l[rouge_key]:
 						if bleu_rouge['Rouge-L'] < 0.885:
-							self.save(save_dir, save_prefix + '_' + rouge_key + str(round(bleu_rouge['Rouge-L'], 4)))
+							self.save(save_dir,
+									  self.loss_type + '_' + rouge_key + '_' + str(round(bleu_rouge['Rouge-L'], 4)))
 						else:
-							self.save(save_dir, save_prefix)
+							self.save(save_dir, self.loss_type + '_' + rouge_key + '_best')
 						max_rouge_l[rouge_key] = bleu_rouge['Rouge-L']
 				else:
 					self.logger.warning('No dev set is loaded for evaluation in the dataset!')
 			else:
-				self.save(save_dir, save_prefix + '_' + str(epoch))
+				self.save(save_dir, rouge_key + '_' + str(epoch))
 
 			if self.switch:
 				self.data.switch()
@@ -607,7 +612,10 @@ class RCModel(object):
 					  }
 
 		if result_dir is not None and result_prefix is not None:
-			result_file = os.path.join(result_dir, result_prefix + '.json')
+			result_path = os.path.join(result_dir, self.model_name)
+			result_file = os.path.join(result_dir, self.model_name, result_prefix + '_dev.json')
+			if not os.path.isdir(result_path):
+				os.makedirs(result_path)
 			with open(result_file, 'w') as fout:
 				# for pred_answer in pred_answers:
 				#     fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
@@ -694,7 +702,10 @@ class RCModel(object):
 													  'article_id': sample['article_id']}
 
 		if result_dir is not None and result_prefix is not None:
-			result_file = os.path.join(result_dir, result_prefix + '.json')
+			result_path = os.path.join(result_dir, self.model_name)
+			result_file = os.path.join(result_dir, self.model_name, result_prefix + '_test.json')
+			if not os.path.isdir(result_path):
+				os.makedirs(result_path)
 			with open(result_file, 'w') as fout:
 				# for pred_answer in pred_answers:
 				#     fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
@@ -709,12 +720,17 @@ class RCModel(object):
 		"""
 		Saves the model into model_dir with model_prefix as the model indicator
 		"""
-		self.saver.save(self.sess, os.path.join(model_dir, model_prefix))
-		self.logger.info('Model saved in {}, with prefix {}.'.format(model_dir, model_prefix))
+		model_path = os.path.join(model_dir, self.model_name)
+		if not os.path.isdir(model_path):
+			os.makedirs(model_path)
+		self.saver.save(self.sess, os.path.join(model_path, model_prefix))
+		self.logger.info('Model saved in {}, with prefix {}.'.format(model_path, model_prefix))
 
 	def restore(self, model_dir, model_prefix):
 		"""
 		Restores the model into model_dir from model_prefix as the model indicator
 		"""
-		self.saver.restore(self.sess, os.path.join(model_dir, model_prefix))
-		self.logger.info('Model restored from {}, with prefix {}'.format(model_dir, model_prefix))
+		model_path = os.path.join(model_dir, self.model_name)
+
+		self.saver.restore(self.sess, os.path.join(model_path, model_prefix))
+		self.logger.info('Model restored from {}, with prefix {}'.format(model_path, model_prefix))
