@@ -12,6 +12,7 @@ class DataSetConfigBase:
 	# paths
 	root = './'
 
+	use_jieba = False
 	use_test_vocab = False
 
 	train_raw_file = root + 'data/train/question.json'

@@ -89,18 +89,20 @@ def train(args, pylpt_cfg, jieba_cfg, model_cfg):
 	logger.info('Done with model training!')
 
 
-def evaluate(args, pylpt_cfg, jieba_cfg, model_cfg):
+def evaluate(args, pyltp_cfg, jieba_cfg, model_cfg):
 	"""
 	evaluate the trained model on dev files
 	"""
 	logger = logging.getLogger("Military AI")
 	logger.info('Load data set and vocab...')
-	mai_data = MilitaryAiDataset(pylpt_cfg, jieba_cfg)
+	mai_data = MilitaryAiDataset(pyltp_cfg, jieba_cfg, use_jieba=pyltp_cfg.use_jieba)
 
 	if args.restore_suffix:
 		restore_prefix = args.restore_suffix
+	elif pyltp_cfg.use_jieba:
+		restore_prefix = 'mrl_soft_jieba_best'
 	else:
-		restore_prefix = 'mrl_pyltp_best'
+		restore_prefix = 'mrl_soft_pyltp_best'
 
 	logger.info('Restoring the model...')
 	rc_model = RCModel(mai_data, model_cfg)
@@ -123,12 +125,14 @@ def predict(args, pyltp_cfg, jieba_cfg, model_cfg):
 	"""
 	logger = logging.getLogger("Military AI")
 	logger.info('Load data set and vocab...')
-	mai_data = MilitaryAiDataset(pyltp_cfg, jieba_cfg, test=True)
+	mai_data = MilitaryAiDataset(pyltp_cfg, jieba_cfg, test=True, use_jieba=pyltp_cfg.use_jieba)
 
 	if args.restore_suffix:
 		restore_prefix = args.restore_suffix
+	elif pyltp_cfg.use_jieba:
+		restore_prefix = 'mrl_soft_jieba_best'
 	else:
-		restore_prefix = 'mrl_pyltp_best'
+		restore_prefix = 'mrl_soft_pyltp_best'
 
 	logger.info('Restoring the model...')
 	rc_model = RCModel(mai_data, model_cfg)

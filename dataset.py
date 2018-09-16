@@ -79,7 +79,6 @@ class MilitaryAiDataset(object):
 			np.random.shuffle(self.total_article_ids)
 			one_piece = int(len(self.total_article_ids) * self.dev_split)
 			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
-			self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * self.dev_split)]
 			self.dev_set = list(
 				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 					   self.train_set))
@@ -299,7 +298,7 @@ class MilitaryAiDataset(object):
 				batch_data['delta_token_starts'].extend([0])
 				batch_data['delta_token_ends'].extend([0])
 				batch_data['delta_rouges'].extend([0])
-				batch_data['delta_span_idxs'].extend([sidx] * len(sample['delta_rouges']))
+				batch_data['delta_span_idxs'].extend([sidx])
 		# batch_data['answer_tokens_len'].append(0)
 		batch_data = self._gen_hand_features(batch_data)
 		return batch_data
@@ -456,7 +455,6 @@ class MilitaryAiDataset(object):
 			np.random.shuffle(self.total_article_ids)
 			one_piece = int(len(self.total_article_ids) * self.dev_split)
 			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
-			self.dev_article_ids = self.total_article_ids[:int(len(self.total_article_ids) * self.dev_split)]
 			self.dev_set = list(
 				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 					   self.train_set))
