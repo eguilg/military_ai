@@ -7,6 +7,7 @@ Note that we use Pointer Network for the decoding stage of both models.
 """
 
 import json
+import pickle
 import logging
 import os
 import time
@@ -696,20 +697,20 @@ class RCModel(object):
 													  self.end_probs],
 													 feed_dict)
 
-			for sample, prob1, prob2 in zip(batch['raw_data'], batch_prob1.tolist(), batch_prob2.tolist()):
+			for sample, prob1, prob2 in zip(batch['raw_data'], batch_prob1, batch_prob2):
 				answer_dict[sample['question_id']] = {'prob1': prob1,
 													  'prob2': prob2,
 													  'article_id': sample['article_id']}
 
 		if result_dir is not None and result_prefix is not None:
 			result_path = os.path.join(result_dir, self.model_name)
-			result_file = os.path.join(result_dir, self.model_name, result_prefix + '_test.json')
+			result_file = os.path.join(result_dir, self.model_name, result_prefix + '_test.pkl')
 			if not os.path.isdir(result_path):
 				os.makedirs(result_path)
-			with open(result_file, 'w') as fout:
+			with open(result_file, 'wb') as fout:
 				# for pred_answer in pred_answers:
 				#     fout.write(json.dumps(pred_answer, ensure_ascii=False) + '\n')
-				json.dump(answer_dict, fout, ensure_ascii=False)
+				pickle.dump(answer_dict, fout, False)
 
 			self.logger.info('Saving {} results to {}'.format(result_prefix, result_file))
 		return
