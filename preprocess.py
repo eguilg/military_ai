@@ -97,7 +97,7 @@ class PreProcessor():
 			row = re.sub(r'９', '9', row)
 			row = re.sub(r'．', '.', row)
 
-			if row[-1] == '。':
+			if len(row) > 0 and row[-1] == '。':
 				row = row[:-1].strip()
 			return row
 
@@ -484,11 +484,12 @@ class PreProcessor():
 			qadf['answer_flags'] = ans_cut['flags']
 
 		adf, qadf = self.clean_token(adf, qadf)
-
-		sample_df = self.parallel_sample_article(adf, qadf, self.cfg.article_sample_len)
-
 		if 'answer' in qadf.columns:
+			sample_df = self.parallel_sample_article(adf, qadf, self.cfg.article_sample_len)
 			sample_df = self.parallel_find_gold_span(sample_df)
+		else:
+			sample_df = self.parallel_sample_article(adf, qadf, self.cfg.article_sample_len_test)
+
 
 		croups = list(adf['article_tokens']) + list(qadf['question_tokens'])
 		flag_croups = list(adf['article_flags']) + list(qadf['question_flags'])

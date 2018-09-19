@@ -1,5 +1,11 @@
 class DataSetConfigBase:
 
+	def __init__(self, _cv=None, _use_jieba=None):
+		if _cv:
+			self.cv = _cv
+		if _use_jieba:
+			self.use_jieba = _use_jieba
+
 	flag_emb_dim = 100
 	token_emb_dim = 300
 	token_min_cnt = 3
@@ -8,6 +14,7 @@ class DataSetConfigBase:
 	seed = 502
 
 	article_sample_len = 500
+	article_sample_len_test = 500
 
 	# paths
 	root = './'
@@ -16,7 +23,7 @@ class DataSetConfigBase:
 	use_test_vocab = False
 
 	train_raw_file = root + 'data/train/question.json'
-	test_raw_file = root + 'data/test/train-test-question.json'
+	test_raw_file = root + 'data/test/test-question-cleaned.json'
 
 	elmo_dict_file = root + 'data/embedding/elmo-military_vocab.txt'
 	elmo_embed_file = root + 'data/embedding/elmo-military_emb.pkl'

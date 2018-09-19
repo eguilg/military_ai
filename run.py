@@ -11,6 +11,8 @@ from dataset import MilitaryAiDataset
 from rc_model import RCModel
 from prepare import prepare_data
 from config import base_config, bidaf_config, mlstm_config, dataset_base_config, jieba_data_config, pyltp_data_config
+from config.jieba_data_config import DataSetConfigJieba
+from config.pyltp_data_config import DataSetConfigPyltp
 
 base_cfg = base_config.config
 bidaf_1_cfg = bidaf_config.config_1
@@ -145,6 +147,60 @@ def predict(args, pyltp_cfg, jieba_cfg, model_cfg):
 								  result_prefix=restore_prefix)
 
 
+def predict_cv(args, model_cfg):
+	"""
+	predicts answers for test files
+	"""
+
+	logger = logging.getLogger("Military AI")
+	logger.info('Load data set and vocab...')
+	data_cfgs = [(DataSetConfigPyltp(i), DataSetConfigJieba(i)) for i in range(2, 6)]
+	mai_data = MilitaryAiDataset(data_cfgs[0][0], data_cfgs[0][1], test=True, use_jieba=data_cfgs[0][0].use_jieba)
+	rc_model = RCModel(mai_data, model_cfg)
+	for pyltp, jieba in data_cfgs:
+		rc_model.data.reset(pyltp, jieba, test=True, use_jieba=pyltp.use_jieba)
+		rc_model.model_name = rc_model.algo + rc_model.suffix + '_cv' + str(rc_model.data.cv)
+
+		model_path = os.path.join(model_cfg.model_dir, rc_model.model_name)
+		model_prefix_list = [os.path.splitext(s)[0] for s in filter(lambda s: s.endswith('index'), os.listdir(model_path))]
+		jieba_preix_list = list(filter(lambda s: 'jieba' in s, model_prefix_list))
+		pyltp_preix_list = list(filter(lambda s: 'pyltp' in s, model_prefix_list))
+		logger.info('curr cv: {}'.format(pyltp.cv))
+
+		for i in range(2):
+			if rc_model.data.use_jieba:
+				restore_prefix_list = jieba_preix_list
+			else:
+				restore_prefix_list = pyltp_preix_list
+			logger.info('prefix list: {}'.format(restore_prefix_list))
+
+			for restore_prefix in restore_prefix_list:
+				score_str = restore_prefix.split('_')[-1]
+				
+				try:
+					score = float(score_str)
+						
+				except ValueError:
+					score = 0
+				if score < 0.87:
+					continue
+
+				logger.info('Restoring the model...')
+				logger.info('curr prefix: {}'.format(restore_prefix))
+				logger.info('dataset using jieba: {}'.format(rc_model.data.use_jieba))
+				rc_model.restore(model_dir=model_cfg.model_dir,
+								 model_prefix=restore_prefix)
+				logger.info('Predicting answers for test set...')
+				test_batches = mai_data.gen_mini_batches('test', model_cfg.batch_size, shuffle=False)
+				rc_model.predict_for_ensemble(test_batches,
+											  result_dir=model_cfg.result_dir,
+											  result_prefix=restore_prefix)
+			if i == 0:
+				rc_model.data.switch()
+
+
+
+
 def run(pylpt_cfg, jieba_cfg, model_cfg):
 	"""
 	Prepares and runs the whole system.
@@ -179,7 +235,8 @@ def run(pylpt_cfg, jieba_cfg, model_cfg):
 	if args.evaluate:
 		evaluate(args, pyltp_cfg, jieba_cfg, model_cfg)
 	if args.predict:
-		predict(args, pyltp_cfg, jieba_cfg, model_cfg)
+		# predict(args, pyltp_cfg, jieba_cfg, model_cfg)
+		predict_cv(args, model_cfg)
 
 
 if __name__ == '__main__':

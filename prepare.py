@@ -23,7 +23,7 @@ def preprocess_train(cfg):
 	logger.info('Checking raw data files...')
 	assert os.path.exists(cfg.train_raw_file), '{} file does not exist.'.format(cfg.train_raw_file)
 	logger.info('Preparing the directories...')
-	for dir_path in [cfg.vocab_dir, cfg.model_dir, cfg.result_dir, cfg.summary_dir]:
+	for dir_path in [cfg.vocab_dir, cfg.summary_dir]:
 		if not os.path.exists(dir_path):
 			os.makedirs(dir_path)
 
@@ -48,7 +48,7 @@ def preprocess_test(cfg):
 	logger.info('Checking raw data files...')
 	assert os.path.exists(cfg.test_raw_file), '{} file does not exist.'.format(cfg.test_raw_file)
 	logger.info('Preparing the directories...')
-	for dir_path in [cfg.vocab_dir, cfg.model_dir, cfg.result_dir, cfg.summary_dir]:
+	for dir_path in [cfg.vocab_dir, cfg.summary_dir]:
 		if not os.path.exists(dir_path):
 			os.makedirs(dir_path)
 

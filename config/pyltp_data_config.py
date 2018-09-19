@@ -2,6 +2,7 @@ from config.dataset_base_config import DataSetConfigBase
 
 
 class DataSetConfigPyltp(DataSetConfigBase):
+
 	cut_word_method = 'pyltp'
 
 	train_preprocessed_file = DataSetConfigBase.root + 'data/train/train_preprocessed_' + cut_word_method + '_' + str(
@@ -12,7 +13,7 @@ class DataSetConfigPyltp(DataSetConfigBase):
 	train_flag_croups_file = DataSetConfigBase.root + 'data/train/train_flag_croups_' + cut_word_method + '.json'
 
 	test_preprocessed_file = DataSetConfigBase.root + 'data/test/test_preprocessed_' + cut_word_method + '_' + str(
-			DataSetConfigBase.article_sample_len) + '.json'
+			DataSetConfigBase.article_sample_len_test) + '.json'
 
 	test_croups_file = DataSetConfigBase.root + 'data/test/test_croups_' + cut_word_method + '.json'
 	test_flag_croups_file = DataSetConfigBase.root + 'data/test/test_flag_croups_' + cut_word_method + '.json'

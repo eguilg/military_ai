@@ -67,10 +67,10 @@ class MilitaryAiDataset(object):
 		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
 		self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
 
-		self.p_token_max_len = max(
-			[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
-		self.q_token_max_len = max(
-			[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
+		# self.p_token_max_len = max(
+		# 	[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
+		# self.q_token_max_len = max(
+		# 	[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
 
 		if not self.is_test:
 			#  split train & dev by article_id
@@ -276,7 +276,7 @@ class MilitaryAiDataset(object):
 
 
 
-		batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len = self._dynamic_padding(batch_data)
+		batch_data, pad_p_len, pad_q_len = self._dynamic_padding(batch_data)
 		batch_data['article_pad_len'] = pad_p_len
 		batch_data['question_pad_len'] = pad_q_len
 
@@ -329,11 +329,10 @@ class MilitaryAiDataset(object):
 										  for ids in batch_data['article_elmo_ids']]
 		batch_data['question_elmo_ids'] = [(ids + [pad_id_e] * (pad_q_len - len(ids)))[: pad_q_len]
 										   for ids in batch_data['question_elmo_ids']]
-		pad_p_token_len = self.p_token_max_len
-		pad_q_token_len = self.q_token_max_len
+
 
 		# print(len(batch_data))
-		return batch_data, pad_p_len, pad_q_len, pad_p_token_len, pad_q_token_len
+		return batch_data, pad_p_len, pad_q_len
 
 	def word_iter(self, set_name=None):
 		"""
@@ -443,10 +442,10 @@ class MilitaryAiDataset(object):
 		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
 		self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
 
-		self.p_token_max_len = max(
-			[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
-		self.q_token_max_len = max(
-			[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
+		# self.p_token_max_len = max(
+		# 	[max([len(token) for token in sample['article_tokens']]) for sample in self.train_set + self.test_set])
+		# self.q_token_max_len = max(
+		# 	[max([len(token) for token in sample['question_tokens']]) for sample in self.train_set + self.test_set])
 
 		if not self.is_test:
 			#  split train & dev by article_id
@@ -462,6 +461,8 @@ class MilitaryAiDataset(object):
 				lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
 				self.train_set))
 
+	def reset(self, pyltp_cfg, jieba_cfg, use_jieba=False, test=True):
+		self.__init__(pyltp_cfg, jieba_cfg, use_jieba, test)
 
 if __name__ == '__main__':
 	from config import jieba_data_config
