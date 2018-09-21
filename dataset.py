@@ -77,8 +77,12 @@ class MilitaryAiDataset(object):
 			self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
 			np.random.seed(self.seed)
 			np.random.shuffle(self.total_article_ids)
-			one_piece = int(len(self.total_article_ids) * self.dev_split)
-			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
+			if self.cv == 0:
+				self.dev_article_ids = self.total_article_ids[: int(len(self.total_article_ids) * 0.1)]
+			else:
+				
+				one_piece = int(len(self.total_article_ids) * self.dev_split)
+				self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
 			self.dev_set = list(
 				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 					   self.train_set))
@@ -449,11 +453,15 @@ class MilitaryAiDataset(object):
 
 		if not self.is_test:
 			#  split train & dev by article_id
-			self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
-			np.random.seed(self.seed)
-			np.random.shuffle(self.total_article_ids)
-			one_piece = int(len(self.total_article_ids) * self.dev_split)
-			self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
+			# self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
+			# if self.cv == 0:
+			# 	np.random.shuffle(self.total_article_ids)
+			# 	self.dev_article_ids = self.total_article_ids[: int(len(self.total_article_ids) * 0.1)]
+			# else:
+			# 	np.random.seed(self.seed)
+			# 	np.random.shuffle(self.total_article_ids)
+			# 	one_piece = int(len(self.total_article_ids) * self.dev_split)
+			# 	self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
 			self.dev_set = list(
 				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
 					   self.train_set))

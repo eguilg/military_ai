@@ -17,6 +17,7 @@ from config.pyltp_data_config import DataSetConfigPyltp
 base_cfg = base_config.config
 bidaf_1_cfg = bidaf_config.config_1
 bidaf_2_cfg = bidaf_config.config_2
+bidaf_3_cfg = bidaf_config.config_3
 mlstm_1_cfg = mlstm_config.config_1
 mlstm_2_cfg = mlstm_config.config_2
 
@@ -25,7 +26,7 @@ jieba_cfg = jieba_data_config.config
 pyltp_cfg = pyltp_data_config.config
 
 # setting current config
-cur_model_cfg = bidaf_1_cfg
+cur_model_cfg = bidaf_3_cfg
 
 
 # cur_cfg = bidaf_2_cfg
@@ -154,14 +155,16 @@ def predict_cv(args, model_cfg):
 
 	logger = logging.getLogger("Military AI")
 	logger.info('Load data set and vocab...')
-	data_cfgs = [(DataSetConfigPyltp(i), DataSetConfigJieba(i)) for i in range(2, 6)]
+	data_cfgs = [(DataSetConfigPyltp(i), DataSetConfigJieba(i)) for i in range(0, 6)]
 	mai_data = MilitaryAiDataset(data_cfgs[0][0], data_cfgs[0][1], test=True, use_jieba=data_cfgs[0][0].use_jieba)
 	rc_model = RCModel(mai_data, model_cfg)
 	for pyltp, jieba in data_cfgs:
-		rc_model.data.reset(pyltp, jieba, test=True, use_jieba=pyltp.use_jieba)
-		rc_model.model_name = rc_model.algo + rc_model.suffix + '_cv' + str(rc_model.data.cv)
-
+		rc_model.model_name = rc_model.algo + rc_model.suffix + '_cv' + str(pyltp.cv)
 		model_path = os.path.join(model_cfg.model_dir, rc_model.model_name)
+		if not os.path.isdir(model_path):
+			continue
+		# rc_model.data.reset(pyltp, jieba, test=True, use_jieba=pyltp.use_jieba)
+
 		model_prefix_list = [os.path.splitext(s)[0] for s in filter(lambda s: s.endswith('index'), os.listdir(model_path))]
 		jieba_preix_list = list(filter(lambda s: 'jieba' in s, model_prefix_list))
 		pyltp_preix_list = list(filter(lambda s: 'pyltp' in s, model_prefix_list))
@@ -181,7 +184,7 @@ def predict_cv(args, model_cfg):
 					score = float(score_str)
 						
 				except ValueError:
-					score = 0
+					score = 1.0
 				if score < 0.87:
 					continue
 
@@ -195,8 +198,8 @@ def predict_cv(args, model_cfg):
 				rc_model.predict_for_ensemble(test_batches,
 											  result_dir=model_cfg.result_dir,
 											  result_prefix=restore_prefix)
-			if i == 0:
-				rc_model.data.switch()
+			# if i == 0:
+			rc_model.data.switch()
 
 
 
