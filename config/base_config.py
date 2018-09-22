@@ -27,5 +27,5 @@ class ConfigBase:
 
 	root = './'
 	model_dir = root + 'data/models/'
-	result_dir = root + 'data/results'
+	result_dir = root + 'data/results750'
 config = ConfigBase()

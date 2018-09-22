@@ -42,10 +42,25 @@ def preprocess_train(cfg):
 
 		p.release()
 
+	if cfg.use_high_prob_test_sample:
+		if not os.path.isfile(cfg.high_prob_test_preprocessed_file):
+			logger.info('Preprocessing high prob test data file...')
+			p = PreProcessor(cfg)
+			raw_data_path = cfg.high_prob_test_file
+			croups, flag_croups, dataset = p.preprocess_dataset(raw_data_path)
+			with open(cfg.high_prob_test_croups_file, 'w') as fo:
+				json.dump(croups, fo)
+			with open(cfg.high_prob_test_flag_croups_file, 'w') as fo:
+				json.dump(flag_croups, fo)
+			with open(cfg.high_prob_test_preprocessed_file, 'w') as fo:
+				json.dump(dataset, fo)
+
+			p.release()
+
 def preprocess_test(cfg):
 	logger = logging.getLogger("Military AI")
-	logger.info('Preparing ' + cfg.cut_word_method + ' cut data set...')
-	logger.info('Checking raw data files...')
+	logger.info('Preparing ' + cfg.cut_word_method + ' cut test data set...')
+	logger.info('Checking raw test data files...')
 	assert os.path.exists(cfg.test_raw_file), '{} file does not exist.'.format(cfg.test_raw_file)
 	logger.info('Preparing the directories...')
 	for dir_path in [cfg.vocab_dir, cfg.summary_dir]:
@@ -76,6 +91,9 @@ def prepare_vocab(cfg):
 		if cfg.use_test_vocab:
 			with open(cfg.test_croups_file, 'r') as fp:
 				croups += json.load(fp)
+		if cfg.use_high_prob_test_sample:
+			with open(cfg.high_prob_test_croups_file, 'r') as fp:
+				croups += json.load(fp)
 
 		logger.info("Training token embedding model")
 		token_wv = Word2Vec(croups,
@@ -91,6 +109,9 @@ def prepare_vocab(cfg):
 			flag_croups = json.load(fp)
 		if cfg.use_test_vocab:
 			with open(cfg.test_flag_croups_file, 'r') as fp:
+				flag_croups += json.load(fp)
+		if cfg.use_high_prob_test_sample:
+			with open(cfg.high_prob_test_flag_croups_file, 'r') as fp:
 				flag_croups += json.load(fp)
 
 		logger.info("Training flag embedding model")

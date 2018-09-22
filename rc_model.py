@@ -57,7 +57,7 @@ class RCModel(object):
 		self.jieba_token_vocab = dataset.jieba_token_vocab
 		self.jieba_flag_vocab = dataset.jieba_flag_vocab
 		self.data = dataset
-		self.model_name = self.algo + self.suffix + '_cv' + str(self.data.cv)
+		self.model_name = self.algo + self.suffix + '_cv' + str(self.data.cv) + ('_highprob' if self.data.use_highprob else '')
 
 		self.elmo_vocab = dataset.elmo_vocab
 

@@ -30,11 +30,16 @@ class MilitaryAiDataset(object):
 		self.pyltp_flag_embed_path = pyltp_cfg.flag_embed_file
 		self.pyltp_token_embed_path = pyltp_cfg.token_embed_file
 
+		self.pyltp_highprob_preprocessed_path = pyltp_cfg.high_prob_test_preprocessed_file
+
 		self.jieba_train_preprocessed_path = jieba_cfg.train_preprocessed_file
 		self.jieba_test_preprocessed_path = jieba_cfg.test_preprocessed_file
 		self.jieba_flag_embed_path = jieba_cfg.flag_embed_file
 		self.jieba_token_embed_path = jieba_cfg.token_embed_file
 
+		self.jieba_highprob_preprocessed_path = jieba_cfg.high_prob_test_preprocessed_file
+
+		self.use_highprob = jieba_cfg.use_high_prob_test_sample
 		self.elmo_vocab_path = pyltp_cfg.elmo_dict_file
 		self.elmo_embed_path = pyltp_cfg.elmo_embed_file
 		self.seed = pyltp_cfg.seed
@@ -45,11 +50,13 @@ class MilitaryAiDataset(object):
 
 		if use_jieba:
 			self.train_preprocessed_path = self.jieba_train_preprocessed_path
+			self.highprob_preprocessed_path = self.jieba_highprob_preprocessed_path
 			self.test_preprocessed_path = self.jieba_test_preprocessed_path
 		else:
 			self.train_preprocessed_path = self.pyltp_train_preprocessed_path
+			self.highprob_preprocessed_path = self.pyltp_highprob_preprocessed_path
 			self.test_preprocessed_path = self.pyltp_test_preprocessed_path
-
+		self.highprob_article_ids = set()
 		self._load_dataset()
 		self._load_embeddings()
 		# self._convert_to_ids()
@@ -74,7 +81,8 @@ class MilitaryAiDataset(object):
 
 		if not self.is_test:
 			#  split train & dev by article_id
-			self.total_article_ids = sorted(list(set([sample['article_id'] for sample in self.train_set])))
+			self.total_article_ids = list(set([sample['article_id'] for sample in self.train_set]))
+			self.total_article_ids = sorted(list(filter(lambda id: id not in self.highprob_article_ids, self.total_article_ids)))
 			np.random.seed(self.seed)
 			np.random.shuffle(self.total_article_ids)
 			if self.cv == 0:
@@ -102,12 +110,23 @@ class MilitaryAiDataset(object):
 				self.train_set = self._load_from_preprocessed(self.train_preprocessed_path)
 			except FileNotFoundError:
 				self.logger.info('Preprocessed train file not found !')
+				assert 0 == 1
+			if self.use_highprob:
+				try:
+					self.logger.info('Loading highprob train files...')
+					highprob_sample =  self._load_from_preprocessed(self.highprob_preprocessed_path)
+					self.train_set = self.train_set + highprob_sample
+					self.highprob_article_ids = set([sample['article_id'] for sample in highprob_sample])
+				except FileNotFoundError:
+					self.logger.info('Preprocessed highprob file not found !')
+					assert 0 == 1
 		else:
 			try:
 				self.logger.info('Try loading preprocessed test files...')
 				self.test_set = self._load_from_preprocessed(self.test_preprocessed_path)
 			except FileNotFoundError:
 				self.logger.info('Preprocessed test file not found !')
+				assert 0 == 1
 
 
 
@@ -140,6 +159,8 @@ class MilitaryAiDataset(object):
 				sample['qtype_vec'] = type_vec.tolist()
 				sample['article_tokens_len'] = len(sample['article_tokens'])
 				sample['question_tokens_len'] = len(sample['question_tokens'])
+
+
 
 		return total
 

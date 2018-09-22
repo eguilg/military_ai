@@ -26,7 +26,7 @@ jieba_cfg = jieba_data_config.config
 pyltp_cfg = pyltp_data_config.config
 
 # setting current config
-cur_model_cfg = bidaf_3_cfg
+cur_model_cfg = bidaf_2_cfg
 
 
 # cur_cfg = bidaf_2_cfg
@@ -159,7 +159,7 @@ def predict_cv(args, model_cfg):
 	mai_data = MilitaryAiDataset(data_cfgs[0][0], data_cfgs[0][1], test=True, use_jieba=data_cfgs[0][0].use_jieba)
 	rc_model = RCModel(mai_data, model_cfg)
 	for pyltp, jieba in data_cfgs:
-		rc_model.model_name = rc_model.algo + rc_model.suffix + '_cv' + str(pyltp.cv)
+		rc_model.model_name = rc_model.algo + rc_model.suffix + '_cv' + str(pyltp.cv) + ('_highprob' if rc_model.data.use_highprob else '')
 		model_path = os.path.join(model_cfg.model_dir, rc_model.model_name)
 		if not os.path.isdir(model_path):
 			continue
@@ -178,6 +178,8 @@ def predict_cv(args, model_cfg):
 			logger.info('prefix list: {}'.format(restore_prefix_list))
 
 			for restore_prefix in restore_prefix_list:
+				if restore_prefix.startswith('mrl'):
+					continue
 				score_str = restore_prefix.split('_')[-1]
 				
 				try:
@@ -185,7 +187,7 @@ def predict_cv(args, model_cfg):
 						
 				except ValueError:
 					score = 1.0
-				if score < 0.87:
+				if score < 0.9:
 					continue
 
 				logger.info('Restoring the model...')

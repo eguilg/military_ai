@@ -15,18 +15,21 @@ class DataSetConfigBase:
 	seed = 10086
 
 	article_sample_len = 500
-	article_sample_len_test = 500
+	article_sample_len_test = 750
 
 	# paths
 	root = './'
 
 	use_jieba = True
+	use_high_prob_test_sample = False
 	use_test_vocab = False
 
-	# train_raw_file = root + 'data/train/question.json'
-	train_raw_file = root + 'data/train/high_prob_test_articles.txt'
+	train_raw_file = root + 'data/train/question.json'
+	# train_raw_file = root + 'data/train/high_prob_test_articles.txt'
 
 	test_raw_file = root + 'data/test/test-question-cleaned.json'
+
+	high_prob_test_file = root + 'data/train/high_prob_test_articles.json'
 
 	elmo_dict_file = root + 'data/embedding/elmo-military_vocab.txt'
 	elmo_embed_file = root + 'data/embedding/elmo-military_emb.pkl'

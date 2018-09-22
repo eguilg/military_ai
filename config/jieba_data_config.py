@@ -18,10 +18,22 @@ class DataSetConfigJieba(DataSetConfigBase):
 	test_croups_file = DataSetConfigBase.root + 'data/test/test_croups_' + cut_word_method + '.json'
 	test_flag_croups_file = DataSetConfigBase.root + 'data/test/test_flag_croups_' + cut_word_method + '.json'
 
+	high_prob_test_preprocessed_file = DataSetConfigBase.root + 'data/train/high_prob_test_preprocessed_' + cut_word_method + '_' + str(
+		DataSetConfigBase.article_sample_len_test) + '.json'
+
+	high_prob_test_croups_file = DataSetConfigBase.root + 'data/train/high_prob_test_croups_' + cut_word_method + '.json'
+	high_prob_test_flag_croups_file = DataSetConfigBase.root + 'data/train/high_prob_test_flag_croups_' + cut_word_method + '.json'
+
 	flag_embed_file = DataSetConfigBase.root + 'data/embedding/flag_embed' + str(
-		DataSetConfigBase.flag_emb_dim) + '_' + cut_word_method + '.wv'
+		DataSetConfigBase.flag_emb_dim) + '_' + cut_word_method \
+					  + ('_highprob' if DataSetConfigBase.use_high_prob_test_sample else '') \
+					  + ('_withtest' if DataSetConfigBase.use_test_vocab else '') \
+					  + '.wv'
 	token_embed_file = DataSetConfigBase.root + 'data/embedding/token_embed' + str(
-		DataSetConfigBase.token_emb_dim) + '_' + cut_word_method + '.wv'
+		DataSetConfigBase.token_emb_dim) + '_' + cut_word_method \
+					   + ('_highprob' if DataSetConfigBase.use_high_prob_test_sample else '') \
+					   + ('_withtest' if DataSetConfigBase.use_test_vocab else '') \
+					   + '.wv'
 
 	# extra
 	jieba_big_dict_path = './data/embedding/dict.txt.big'

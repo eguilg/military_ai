@@ -14,13 +14,11 @@ import pandas as pd
 
 from utils.rouge import RougeL
 
-
 ltp_seg = Segmentor()
 ltp_pos = Postagger()
 
 
 class PreProcessor():
-
 
 	def __init__(self, cfg):
 		self.cfg = cfg
@@ -53,6 +51,8 @@ class PreProcessor():
 				for items in dc['questions']:
 					r = [dc['article_id']]
 					r = r + list(items.values())
+					if 'question_type' not in items.keys():
+						r.append('unknown')
 					questions.append(r)
 
 			article_columns = ['article_id', 'article_type', 'article_title', 'article_content']
@@ -77,7 +77,7 @@ class PreProcessor():
 		def clean(row):
 			row = re.sub('[\u3000\t]', ' ', row)
 			row = re.sub('\s{2,}', '', row)
-			row = re.sub('[“”]', '', row)
+			# row = re.sub('[“”]', '', row)
 			row = re.sub('[\r\n]', ' ', row)
 
 			# p_l = re.compile(r'\s+([\u4e00-\u9fa5, ]{1})')
@@ -96,6 +96,60 @@ class PreProcessor():
 			row = re.sub(r'８', '8', row)
 			row = re.sub(r'９', '9', row)
 			row = re.sub(r'．', '.', row)
+
+			row = re.sub(r'ａ', 'a', row)
+			row = re.sub(r'ｂ', 'b', row)
+			row = re.sub(r'ｃ', 'c', row)
+			row = re.sub(r'ｄ', 'd', row)
+			row = re.sub(r'ｅ', 'e', row)
+			row = re.sub(r'ｆ', 'f', row)
+			row = re.sub(r'ｇ', 'g', row)
+			row = re.sub(r'ｈ', 'h', row)
+			row = re.sub(r'ｉ', 'i', row)
+			row = re.sub(r'ｊ', 'j', row)
+			row = re.sub(r'ｋ', 'k', row)
+			row = re.sub(r'ｌ', 'l', row)
+			row = re.sub(r'ｍ', 'm', row)
+			row = re.sub(r'ｎ', 'n', row)
+			row = re.sub(r'ｏ', 'o', row)
+			row = re.sub(r'ｐ', 'p', row)
+			row = re.sub(r'ｑ', 'q', row)
+			row = re.sub(r'ｒ', 'r', row)
+			row = re.sub(r'ｓ', 's', row)
+			row = re.sub(r'ｔ', 't', row)
+			row = re.sub(r'ｕ', 'u', row)
+			row = re.sub(r'ｖ', 'v', row)
+			row = re.sub(r'ｗ', 'w', row)
+			row = re.sub(r'ｘ', 'x', row)
+			row = re.sub(r'ｙ', 'y', row)
+			row = re.sub(r'ｚ', 'z', row)
+
+			row = re.sub(r'Ａ', 'A', row)
+			row = re.sub(r'Ｂ', 'B', row)
+			row = re.sub(r'Ｃ', 'C', row)
+			row = re.sub(r'Ｄ', 'D', row)
+			row = re.sub(r'Ｅ', 'E', row)
+			row = re.sub(r'Ｆ', 'F', row)
+			row = re.sub(r'Ｇ', 'G', row)
+			row = re.sub(r'Ｈ', 'H', row)
+			row = re.sub(r'Ｉ', 'I', row)
+			row = re.sub(r'Ｊ', 'J', row)
+			row = re.sub(r'Ｋ', 'K', row)
+			row = re.sub(r'Ｌ', 'L', row)
+			row = re.sub(r'Ｍ', 'M', row)
+			row = re.sub(r'Ｎ', 'N', row)
+			row = re.sub(r'Ｏ', 'O', row)
+			row = re.sub(r'Ｐ', 'P', row)
+			row = re.sub(r'Ｑ', 'Q', row)
+			row = re.sub(r'Ｒ', 'R', row)
+			row = re.sub(r'Ｓ', 'S', row)
+			row = re.sub(r'Ｔ', 'T', row)
+			row = re.sub(r'Ｕ', 'U', row)
+			row = re.sub(r'Ｖ', 'V', row)
+			row = re.sub(r'Ｗ', 'W', row)
+			row = re.sub(r'Ｘ', 'X', row)
+			row = re.sub(r'Ｙ', 'Y', row)
+			row = re.sub(r'Ｚ', 'Z', row)
 
 			if len(row) > 0 and row[-1] == '。':
 				row = row[:-1].strip()
@@ -121,7 +175,7 @@ class PreProcessor():
 			qa_df['answer'] = qa_df['answer'].apply(clean)
 			qa_df['answer'] = qa_df['answer'].apply(str.strip)
 			answers = qa_df[qa_df['answer'] != '']['answer'].values
-			drop_list = ['。', '，', '：', '！', '？', ' ']
+			drop_list = ['。', '，', '、', '；', '：', '？', '！', ' ', '.', '?', '!', ';', ':', ',', '-', '...', '..', '....']
 			answers = [answer[:-1].strip() if answer[-1] in drop_list else answer for answer in answers]
 			answers = [answer[1:].strip() if answer[0] in drop_list else answer for answer in answers]
 			qa_df.loc[qa_df['answer'] != '', 'answer'] = answers
@@ -144,7 +198,6 @@ class PreProcessor():
 
 		sentence_cut = df[col].apply(_cut)
 		return sentence_cut
-
 
 	def _apply_cut_pyltp(self, df, col):
 
@@ -173,8 +226,7 @@ class PreProcessor():
 		sentence_cut = df[col].apply(_cut)
 		return sentence_cut
 
-
-	def parallel_cut(self,df, col):
+	def parallel_cut(self, df, col):
 		n_cpu = mp.cpu_count()
 		with mp.Pool(processes=n_cpu) as p:
 			split_dfs = np.array_split(df, n_cpu)
@@ -360,7 +412,7 @@ class PreProcessor():
 					s1 = set(cand_ans)
 					mlen = max(len(s1), len(s2))
 					iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-					if iou >= 0.25:
+					if iou >= 0.5:
 						rl.add_inst(cand_ans, ground_ans)
 						if rl.inst_scores[-1] == 1.0:
 							s = max(i - 7, 0)
@@ -377,6 +429,11 @@ class PreProcessor():
 				em_mask = (score == 1.0)
 
 				if em_mask.sum() <= 1:
+					if np.max(rl.inst_scores) < 0.8:
+						row['delta_token_starts'] = star_spans
+						row['delta_token_ends'] = end_spans
+						row['delta_rouges'] = rl.inst_scores
+						return row
 					best_idx = np.argmax(rl.inst_scores)
 				else:
 					best_idx = rl_q_idx[int(np.argmax(rl_q.r_scores))]
@@ -389,52 +446,6 @@ class PreProcessor():
 
 			return row
 
-		def _find_golden_span_v2(row, article_tokens_col, question_tokens_col, answer_tokens_col):
-
-			article_tokens = row[article_tokens_col]
-			question_tokens = row[question_tokens_col]
-			answer_tokens = row[answer_tokens_col]
-			row['answer_token_start'] = -1
-			row['answer_token_end'] = -1
-			rl_ans = RougeL()
-			rl_q = RougeL()
-			ground_ans = ''.join(answer_tokens).strip()
-			questrin_str = ''.join(question_tokens).strip()
-			len_p = len(article_tokens)
-			len_a = len(answer_tokens)
-			s2 = set(ground_ans)
-			spans = []
-			for i in range(len_p - len_a + 1):
-				for t_len in range(len_a - 2, len_a + 3):
-					if t_len == 0 or i + t_len > len_p:
-						continue
-					cand_ans = ''.join(article_tokens[i:i + t_len]).strip()
-
-					s1 = set(cand_ans)
-					mlen = max(len(s1), len(s2))
-					iou = len(s1.intersection(s2)) / mlen if mlen != 0 else 0.0
-					if iou > 0.3:
-						s = max(i - 5, 0)
-						cand_ctx = ''.join(article_tokens[s:i + t_len + 5]).strip()
-						rl_ans.add_inst(cand_ans, ground_ans)
-						rl_q.add_inst(cand_ctx, questrin_str)
-						spans.append([i, i + t_len - 1])
-
-			if len(spans) == 0:
-				return row
-
-			sim_ans = np.array(rl_ans.inst_scores)
-			sim_q = np.array(rl_q.r_scores)
-
-			total_score = 0.7 * sim_ans + 0.3 * sim_q
-
-			best_idx = total_score.argmax()
-
-			row['answer_token_start'] = spans[best_idx][0]
-			row['answer_token_end'] = spans[best_idx][1]
-
-			return row
-
 		sample_df = sample_df.apply(
 			lambda row: _find_golden_span(row,
 										  article_tokens_col,
@@ -443,7 +454,6 @@ class PreProcessor():
 			axis=1)
 
 		return sample_df
-
 
 	def parallel_find_gold_span(self, sample_df: pd.DataFrame):
 		n_cpu = mp.cpu_count()
@@ -460,10 +470,7 @@ class PreProcessor():
 
 		return res
 
-
 	def preprocess_dataset(self, raw_path):
-
-
 
 		adf, qadf = self.trans_to_df(raw_path)
 		adf, qadf = self.clean_text(adf, qadf)
@@ -490,7 +497,6 @@ class PreProcessor():
 		else:
 			sample_df = self.parallel_sample_article(adf, qadf, self.cfg.article_sample_len_test)
 
-
 		croups = list(adf['article_tokens']) + list(qadf['question_tokens'])
 		flag_croups = list(adf['article_flags']) + list(qadf['question_flags'])
 		if 'answer' in qadf.columns:
@@ -508,27 +514,27 @@ class PreProcessor():
 
 	"""
 	if __name__ == '__main__':
-	
+
 		adf, qadf = trans_to_df('./data/train/question.json')
 		adf, qadf = clean_text(adf, qadf)
-	
+
 		article_cut = parallel_cut(adf, 'article')
 		adf.drop(['article'], axis=1, inplace=True)
 		adf['article_tokens'] = article_cut['tokens']
 		adf['article_flags'] = article_cut['flags']
-	
+
 		question_cut = parallel_cut(qadf, 'question')
 		qadf.drop(['question'], axis=1, inplace=True)
 		qadf['question_tokens'] = question_cut['tokens']
 		qadf['question_flags'] = question_cut['flags']
-	
+
 		ans_cut = parallel_cut(qadf, 'answer')
 		qadf['answer_tokens'] = ans_cut['tokens']
 		qadf['answer_flags'] = ans_cut['flags']
-	
+
 		adf, qadf = clean_token(adf, qadf)
-	
+
 		sample_df = parallel_sample_article(adf, qadf)
-	
+
 		sample_df_with_span = parallel_find_gold_span(sample_df.iloc[:10])
 	"""
