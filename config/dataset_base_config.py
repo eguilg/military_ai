@@ -10,12 +10,12 @@ class DataSetConfigBase:
 	token_emb_dim = 300
 	token_min_cnt = 3
 	dev_split = 0.2
-	cv = 0
-	# seed = 502 # for 5 folds
-	seed = 10086
+	cv = 1
+	seed = 502  # for 5 folds
+	# seed = 10086
 
 	article_sample_len = 500
-	article_sample_len_test = 750
+	article_sample_len_test = 500
 
 	# paths
 	root = './'

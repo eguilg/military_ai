@@ -500,4 +500,4 @@ if __name__ == '__main__':
 	jieba_cfg = jieba_data_config.config
 	pyltp_cfg = pyltp_data_config.config
 
-	data = MilitaryAiDataset(pyltp_cfg, jieba_cfg)
+	data = MilitaryAiDataset(pyltp_cfg, jieba_cfg, use_jieba=True)
