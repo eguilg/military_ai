@@ -2,10 +2,10 @@
 import gc
 import json
 import logging
-import multiprocessing
 
 import numpy as np
-from gensim.models import Word2Vec, KeyedVectors
+from gensim.models import KeyedVectors
+
 from utils.read_elmo_embedding import get_elmo_vocab
 from vocab import Vocab
 
@@ -69,7 +69,8 @@ class MilitaryAiDataset(object):
 			self.flag_vocab = self.pyltp_flag_vocab
 			self.token_vocab = self.pyltp_token_vocab
 
-		self._convert_to_ids()
+		if self.is_test:
+			self._convert_to_ids()
 
 		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
 		self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
@@ -82,18 +83,20 @@ class MilitaryAiDataset(object):
 		if not self.is_test:
 			#  split train & dev by article_id
 			self.total_article_ids = list(set([sample['article_id'] for sample in self.train_set]))
-			self.total_article_ids = sorted(list(filter(lambda id: id not in self.highprob_article_ids, self.total_article_ids)))
+			self.total_article_ids = sorted(
+				list(filter(lambda id: id not in self.highprob_article_ids, self.total_article_ids)))
 			np.random.seed(self.seed)
 			np.random.shuffle(self.total_article_ids)
 			if self.cv == 0:
 				self.dev_article_ids = self.total_article_ids[: int(len(self.total_article_ids) * 0.1)]
 			else:
-				
+
 				one_piece = int(len(self.total_article_ids) * self.dev_split)
 				self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
 			self.dev_set = list(
-				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
-					   self.train_set))
+				filter(
+					lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
+					self.train_set))
 			self.train_set = list(filter(
 				lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
 				self.train_set))
@@ -114,7 +117,7 @@ class MilitaryAiDataset(object):
 			if self.use_highprob:
 				try:
 					self.logger.info('Loading highprob train files...')
-					highprob_sample =  self._load_from_preprocessed(self.highprob_preprocessed_path)
+					highprob_sample = self._load_from_preprocessed(self.highprob_preprocessed_path)
 					self.train_set = self.train_set + highprob_sample
 					self.highprob_article_ids = set([sample['article_id'] for sample in highprob_sample])
 				except FileNotFoundError:
@@ -127,8 +130,6 @@ class MilitaryAiDataset(object):
 			except FileNotFoundError:
 				self.logger.info('Preprocessed test file not found !')
 				assert 0 == 1
-
-
 
 	def _gen_hand_features(self, batch_data):
 		batch_data['wiqB'] = []
@@ -159,8 +160,6 @@ class MilitaryAiDataset(object):
 				sample['qtype_vec'] = type_vec.tolist()
 				sample['article_tokens_len'] = len(sample['article_tokens'])
 				sample['question_tokens_len'] = len(sample['question_tokens'])
-
-
 
 		return total
 
@@ -201,7 +200,8 @@ class MilitaryAiDataset(object):
 		self.pyltp_token_wv.index2word.insert(0, '<pad>')
 		self.pyltp_token_wv.vectors = np.concatenate(
 			[[np.zeros(self.pyltp_token_wv.vector_size, dtype=np.float32),
-			  np.ones(self.pyltp_token_wv.vector_size, dtype=np.float32) * 0.05, ], self.pyltp_token_wv.vectors], axis=0)
+			  np.ones(self.pyltp_token_wv.vector_size, dtype=np.float32) * 0.05, ], self.pyltp_token_wv.vectors],
+			axis=0)
 
 		self.pyltp_flag_wv.index2word.insert(0, '<unk>')
 		self.pyltp_flag_wv.index2word.insert(0, '<pad>')
@@ -284,22 +284,22 @@ class MilitaryAiDataset(object):
 					  'question_pad_len': 0,
 					  }
 		for sidx, sample in enumerate(batch_data['raw_data']):
+			if self.is_test:
+				batch_data['question_token_ids'].append(sample['question_token_ids'])
+				batch_data['question_tokens_len'].append(sample['question_tokens_len'])
 
+				batch_data['article_token_ids'].append(sample['article_token_ids'])
+				batch_data['article_tokens_len'].append(sample['article_tokens_len'])
+				batch_data['question_flag_ids'].append(sample['question_flag_ids'])
+				batch_data['article_flag_ids'].append(sample['article_flag_ids'])
 
-			batch_data['question_token_ids'].append(sample['question_token_ids'])
-			batch_data['question_tokens_len'].append(sample['question_tokens_len'])
-
-			batch_data['article_token_ids'].append(sample['article_token_ids'])
-			batch_data['article_tokens_len'].append(sample['article_tokens_len'])
-			batch_data['question_flag_ids'].append(sample['question_flag_ids'])
-			batch_data['article_flag_ids'].append(sample['article_flag_ids'])
-
-			batch_data['question_elmo_ids'].append(sample['question_elmo_ids'])
-			batch_data['article_elmo_ids'].append(sample['article_elmo_ids'])
+				batch_data['question_elmo_ids'].append(sample['question_elmo_ids'])
+				batch_data['article_elmo_ids'].append(sample['article_elmo_ids'])
 
 			batch_data['qtype_vecs'].append(sample['qtype_vec'])
 
-
+		if not self.is_test:
+			batch_data = self._convert_batch_to_ids(batch_data)
 
 		batch_data, pad_p_len, pad_q_len = self._dynamic_padding(batch_data)
 		batch_data['article_pad_len'] = pad_p_len
@@ -355,7 +355,6 @@ class MilitaryAiDataset(object):
 		batch_data['question_elmo_ids'] = [(ids + [pad_id_e] * (pad_q_len - len(ids)))[: pad_q_len]
 										   for ids in batch_data['question_elmo_ids']]
 
-
 		# print(len(batch_data))
 		return batch_data, pad_p_len, pad_q_len
 
@@ -396,8 +395,6 @@ class MilitaryAiDataset(object):
 			if data_set is None:
 				continue
 			for sample in data_set:
-
-
 				# sample['question_token_max_len'] = max([len(token) for token in sample['question_tokens']])
 				# sample['article_token_max_len'] = max([len(token) for token in sample['article_tokens']])
 
@@ -415,6 +412,38 @@ class MilitaryAiDataset(object):
 											   for token in sample['question_tokens']]
 				sample['article_elmo_ids'] = [elmo2idx[token] if token in elmo2idx.keys() else elmo2idx['<unk>']
 											  for token in sample['article_tokens']]
+
+	def _convert_batch_to_ids(self, batch_data):
+		"""
+		Convert the question and article in the original dataset to ids
+		Args:
+			vocab: the vocabulary on this dataset
+		"""
+		token2idx = self.token_vocab.token2id
+		flag2idx = self.flag_vocab.token2id
+		elmo2idx = self.elmo_vocab.token2id
+		for sample in batch_data['raw_data']:
+			batch_data['question_token_ids'].append(
+				[token2idx[token] if token in token2idx.keys() else token2idx['<unk>']
+				 for token in sample['question_tokens']])
+			batch_data['question_tokens_len'].append(sample['question_tokens_len'])
+
+			batch_data['article_token_ids'].append(
+				[token2idx[token] if token in token2idx.keys() else token2idx['<unk>']
+				 for token in sample['article_tokens']])
+			batch_data['article_tokens_len'].append(sample['article_tokens_len'])
+
+			batch_data['question_flag_ids'].append([flag2idx[flag] if flag in flag2idx.keys() else flag2idx['<unk>']
+													for flag in sample['question_flags']])
+			batch_data['article_flag_ids'].append([flag2idx[flag] if flag in flag2idx.keys() else flag2idx['<unk>']
+												   for flag in sample['article_flags']])
+
+			batch_data['question_elmo_ids'].append([elmo2idx[token] if token in elmo2idx.keys() else elmo2idx['<unk>']
+													for token in sample['question_tokens']])
+			batch_data['article_elmo_ids'].append([elmo2idx[token] if token in elmo2idx.keys() else elmo2idx['<unk>']
+												   for token in sample['article_tokens']])
+
+		return batch_data
 
 	def gen_mini_batches(self, set_name, batch_size, shuffle=True):
 		"""
@@ -457,12 +486,13 @@ class MilitaryAiDataset(object):
 			self.token_vocab = self.jieba_token_vocab
 		else:
 			self.train_preprocessed_path = self.pyltp_train_preprocessed_path
-			self.test_preprocessed_path = self.pyltp_test_preprocessed_path			
+			self.test_preprocessed_path = self.pyltp_test_preprocessed_path
 			self.flag_vocab = self.pyltp_flag_vocab
 			self.token_vocab = self.pyltp_token_vocab
 
 		self._load_dataset()
-		self._convert_to_ids()
+		if self.is_test:
+			self._convert_to_ids()
 
 		self.p_max_tokens_len = max([sample['article_tokens_len'] for sample in self.train_set + self.test_set])
 		self.q_max_tokens_len = max([sample['question_tokens_len'] for sample in self.train_set + self.test_set])
@@ -484,14 +514,16 @@ class MilitaryAiDataset(object):
 			# 	one_piece = int(len(self.total_article_ids) * self.dev_split)
 			# 	self.dev_article_ids = self.total_article_ids[(self.cv - 1) * one_piece: self.cv * one_piece]
 			self.dev_set = list(
-				filter(lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
-					   self.train_set))
+				filter(
+					lambda sample: sample['article_id'] in self.dev_article_ids and sample['answer_token_start'] >= 0,
+					self.train_set))
 			self.train_set = list(filter(
 				lambda sample: sample['article_id'] not in self.dev_article_ids and sample['answer_token_start'] >= 0,
 				self.train_set))
 
 	def reset(self, pyltp_cfg, jieba_cfg, use_jieba=False, test=True):
 		self.__init__(pyltp_cfg, jieba_cfg, use_jieba, test)
+
 
 if __name__ == '__main__':
 	from config import jieba_data_config
