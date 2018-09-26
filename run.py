@@ -26,7 +26,7 @@ jieba_cfg = jieba_data_config.config
 pyltp_cfg = pyltp_data_config.config
 
 # setting current config
-cur_model_cfg = bidaf_3_cfg
+cur_model_cfg = bidaf_1_cfg
 
 
 # cur_cfg = bidaf_2_cfg
@@ -63,8 +63,9 @@ def prepare(args, pyltp_cfg, jieba_cfg):
 	"""
 	logger = logging.getLogger("Military AI")
 
-	prepare_data(pyltp_cfg)
+
 	prepare_data(jieba_cfg)
+	prepare_data(pyltp_cfg)
 
 	logger.info('Done with preparing!')
 
@@ -178,6 +179,8 @@ def predict_cv(args, model_cfg):
 			logger.info('prefix list: {}'.format(restore_prefix_list))
 
 			for restore_prefix in restore_prefix_list:
+				if restore_prefix.startswith('mrl'):
+					continue
 				score_str = restore_prefix.split('_')[-1]
 				
 				try:
@@ -185,7 +188,7 @@ def predict_cv(args, model_cfg):
 						
 				except ValueError:
 					score = 1.0
-				if score < 0.87:
+				if score < 0.90:
 					continue
 
 				logger.info('Restoring the model...')

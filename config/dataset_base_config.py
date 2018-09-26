@@ -10,9 +10,9 @@ class DataSetConfigBase:
 	token_emb_dim = 300
 	token_min_cnt = 3
 	dev_split = 0.2
-	cv = 0
-	# seed = 502 # for 5 folds
-	seed = 10086
+	cv = 1
+	seed = 502  # for 5 folds
+	# seed = 10086
 
 	article_sample_len = 500
 	article_sample_len_test = 500
@@ -23,8 +23,8 @@ class DataSetConfigBase:
 	use_jieba = True
 	use_test_vocab = False
 
-	# train_raw_file = root + 'data/train/question.json'
-	train_raw_file = root + 'data/train/high_prob_test_articles.txt'
+	train_raw_file = root + 'data/train/question.json'
+	# train_raw_file = root + 'data/train/high_prob_test_articles.txt'
 
 	test_raw_file = root + 'data/test/test-question-cleaned.json'
 
