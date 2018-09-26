@@ -425,21 +425,17 @@ class PreProcessor():
 			if len(star_spans) == 0:
 				return row
 			else:
-				score = np.array(rl.inst_scores)
-				em_mask = (score == 1.0)
-
-				if em_mask.sum() <= 1:
-					if np.max(rl.inst_scores) < 0.8:
-						row['delta_token_starts'] = star_spans
-						row['delta_token_ends'] = end_spans
-						row['delta_rouges'] = rl.inst_scores
-						return row
+				max_score = np.max(rl.inst_scores)
+				if max_score == 1:
+					best_idx = rl_q_idx[int(np.argmax(rl_q.r_scores))]
+				elif max_score >= 0.9:
 					best_idx = np.argmax(rl.inst_scores)
 				else:
-					best_idx = rl_q_idx[int(np.argmax(rl_q.r_scores))]
+					best_idx = None
 
-				row['answer_token_start'] = star_spans[best_idx]
-				row['answer_token_end'] = end_spans[best_idx]
+				if best_idx:
+					row['answer_token_start'] = star_spans[best_idx]
+					row['answer_token_end'] = end_spans[best_idx]
 				row['delta_token_starts'] = star_spans
 				row['delta_token_ends'] = end_spans
 				row['delta_rouges'] = rl.inst_scores
