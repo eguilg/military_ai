@@ -26,7 +26,7 @@ class DataSetConfigBase:
 	train_raw_file = root + 'data/train/question.json'
 	# train_raw_file = root + 'data/train/high_prob_test_articles.txt'
 
-	test_raw_file = root + 'data/test/test-question-cleaned.json'
+	test_raw_file = root + 'data/test/test_question.json'
 
 	elmo_dict_file = root + 'data/embedding/elmo-military_vocab.txt'
 	elmo_embed_file = root + 'data/embedding/elmo-military_emb.pkl'
